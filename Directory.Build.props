@@ -1,0 +1,21 @@
+<Project>
+
+  <!--
+    Common compiler settings shared by every project.
+    TargetFramework is intentionally NOT set here so each project can pick its own:
+      - RegCompare uses net11.0-windows10.0.17763.0 (DwmSetWindowAttribute, Win32 P/Invokes).
+      - RegCompare.Tests matches the same TFM so the ProjectReference resolves cleanly.
+  -->
+  <PropertyGroup>
+    <LangVersion>14.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsAsErrors />
+    <NoWarn>$(NoWarn);AVA2002</NoWarn>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <RootNamespace>RegCompare</RootNamespace>
+  </PropertyGroup>
+
+</Project>

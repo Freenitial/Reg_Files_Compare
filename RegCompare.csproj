@@ -1,0 +1,110 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- Windows TFM is required by the Win32 P/Invokes (Dwm/SetWindowPos/RedrawWindow/SendMessage)
+         and by the static Skia link recipe. -->
+    <TargetFramework>net11.0-windows10.0.17763.0</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <Platforms>AnyCPU;x64</Platforms>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+
+    <AssemblyName>Reg_Files_Compare</AssemblyName>
+    <AssemblyTitle>REG Files Compare</AssemblyTitle>
+    <Product>REG Files Compare</Product>
+    <Version>1.0.0</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\logo.ico</ApplicationIcon>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+
+    <UseWindowsForms>false</UseWindowsForms>
+    <UseWPF>false</UseWPF>
+
+    <NoWarn>$(NoWarn);NETSDK1206</NoWarn>
+
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <PublishAot>true</PublishAot>
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>full</TrimMode>
+    <!-- Skia/HarfBuzz statically linked rely on ICU for text shaping - InvariantGlobalization off. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <StripSymbols>true</StripSymbols>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <IlcOptimizationPreference>Size</IlcOptimizationPreference>
+    <IlcGenerateStackTraceData>false</IlcGenerateStackTraceData>
+
+    <!-- True single-file static link: roll Skia/HarfBuzz .lib into the .exe via link.exe. -->
+    <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
+    <StaticExecutable>true</StaticExecutable>
+  </PropertyGroup>
+
+  <!-- Static linking of Skia + HarfBuzz: tell the AOT compiler to emit direct calls instead
+       of DllImport lookups (DirectPInvoke), and feed the linker the system .lib files Skia
+       depends on (GDI / User32 / OLE / Uniscribe / fontsub). /LTCG up-front avoids a linker
+       restart since libHarfBuzzSharp objects are /GL-compiled. -->
+  <ItemGroup Condition="'$(PublishAot)' == 'true' AND '$(RuntimeIdentifier)' == 'win-x64'">
+    <DirectPInvoke Include="libHarfBuzzSharp" />
+    <DirectPInvoke Include="libSkiaSharp" />
+    <LinkerArg Include="Gdi32.lib;User32.lib" />
+    <LinkerArg Include="Ole32.lib" />
+    <LinkerArg Include="fontsub.lib;USP10.lib" />
+    <LinkerArg Include="/LTCG" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+    <PackageReference Include="Avalonia.Fonts.Inter" />
+
+    <!-- Static .lib for Skia + HarfBuzz (no .dll at runtime). -->
+    <PackageReference Include="2ndLAB.SkiaSharp.Static" />
+
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Assets\**" />
+    <!-- Documentation images (README screenshot, release-note logo) live under Assets but are
+         not loaded at runtime; keep them out of the embedded resources. -->
+    <AvaloniaResource Remove="Assets\logo_64.png" />
+    <AvaloniaResource Remove="Assets\screenshot.png" />
+  </ItemGroup>
+
+  <!-- The unit-test project lives in Tests/ under this directory; keep its sources out of the
+       app's implicit compile glob so the app and tests build independently. -->
+  <ItemGroup>
+    <Compile Remove="Tests\**\*.cs" />
+  </ItemGroup>
+
+  <!-- Native NuGet packages ship link-time .lib + native .pdb + redundant dynamic .dll
+       fallbacks (libSkiaSharp.dll, libHarfBuzzSharp.dll). With static linking they are all
+       baked into the .exe; drop them from the publish folder so the output stays a true
+       single-file. ANGLE (av_libglesv2.dll) is also dropped: we render via the software
+       backend (Win32RenderingMode.Software in Program.cs). -->
+  <Target Name="StripRedundantNativeAssetsFromPublish" AfterTargets="Publish" Condition="'$(Configuration)' == 'Release'">
+    <ItemGroup>
+      <_NativeAssetToDelete Include="$(PublishDir)*.pdb" />
+      <_NativeAssetToDelete Include="$(PublishDir)*.lib" />
+      <_NativeAssetToDelete Include="$(PublishDir)libSkiaSharp.dll" />
+      <_NativeAssetToDelete Include="$(PublishDir)libHarfBuzzSharp.dll" />
+      <_NativeAssetToDelete Include="$(PublishDir)av_libglesv2.dll" />
+    </ItemGroup>
+    <Delete Files="@(_NativeAssetToDelete)" />
+  </Target>
+
+</Project>

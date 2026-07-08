@@ -1,0 +1,257 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        Compact control styling: small fonts and tight padding layered on top of FluentTheme.
+    -->
+
+    <Styles.Resources>
+        <x:Double x:Key="CheckBoxMinHeight">20</x:Double>
+
+        <!-- Fixed-thickness scroll bars: override the Fluent compact-state scale transforms
+             (scaleX(0.125) / scaleY(0.125)) with identity so the thumb stays at full thickness. -->
+        <x:Double x:Key="ScrollBarSize">14</x:Double>
+        <TransformOperations x:Key="VerticalSmallScrollThumbScaleTransform">none</TransformOperations>
+        <TransformOperations x:Key="HorizontalSmallScrollThumbScaleTransform">none</TransformOperations>
+    </Styles.Resources>
+
+    <!-- Default text -->
+    <Style Selector="TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource RegForeground}" />
+    </Style>
+
+    <!-- Standard buttons: flat, dark, properly centered -->
+    <Style Selector="Button">
+        <Setter Property="MinHeight" Value="22" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="Padding" Value="8,2" />
+        <Setter Property="Background" Value="{DynamicResource RegButtonBg}" />
+        <Setter Property="Foreground" Value="{DynamicResource RegForeground}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource RegBorder}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="0" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="FontSize" Value="12" />
+    </Style>
+
+    <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource RegButtonHover}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource RegBorder}" />
+        <Setter Property="TextElement.Foreground" Value="{DynamicResource RegForeground}" />
+    </Style>
+
+    <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource RegSelectionBg}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource RegBorder}" />
+        <Setter Property="TextElement.Foreground" Value="{DynamicResource RegForeground}" />
+    </Style>
+
+    <Style Selector="Button:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource RegButtonBg}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource RegBorder}" />
+        <Setter Property="TextElement.Foreground" Value="{DynamicResource RegMutedForeground}" />
+        <Setter Property="Opacity" Value="0.55" />
+    </Style>
+
+    <!-- Per-column close (X) button -->
+    <Style Selector="Button.close">
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Width" Value="22" />
+        <Setter Property="Height" Value="20" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector="Button.close:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource RegButtonHover}" />
+    </Style>
+
+    <!-- CheckBox: compact, indicator 14x14 centered -->
+    <Style Selector="CheckBox">
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Foreground" Value="{DynamicResource RegForeground}" />
+        <Setter Property="MinHeight" Value="20" />
+        <Setter Property="Padding" Value="2,0,0,0" />
+        <Setter Property="FontSize" Value="12" />
+    </Style>
+
+    <Style Selector="CheckBox /template/ Border#NormalRectangle">
+        <Setter Property="Width" Value="14" />
+        <Setter Property="Height" Value="14" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+    </Style>
+
+    <!-- TextBox: dark bg, no hover/focus state change -->
+    <Style Selector="TextBox">
+        <Setter Property="MinHeight" Value="22" />
+        <Setter Property="Padding" Value="4,2" />
+        <Setter Property="Background" Value="{DynamicResource RegInputBg}" />
+        <Setter Property="Foreground" Value="{DynamicResource RegForeground}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource RegBorder}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="0" />
+        <Setter Property="FontSize" Value="12" />
+    </Style>
+
+    <Style Selector="TextBox /template/ Border#PART_BorderElement">
+        <Setter Property="Background" Value="{DynamicResource RegInputBg}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource RegBorder}" />
+        <Setter Property="BorderThickness" Value="1" />
+    </Style>
+
+    <Style Selector="TextBox:pointerover /template/ Border#PART_BorderElement">
+        <Setter Property="Background" Value="{DynamicResource RegInputBg}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource RegBorder}" />
+    </Style>
+
+    <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
+        <Setter Property="Background" Value="{DynamicResource RegInputBg}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource RegBorder}" />
+    </Style>
+
+    <!-- ComboBox: dark, compact -->
+    <Style Selector="ComboBox">
+        <Setter Property="MinHeight" Value="22" />
+        <Setter Property="Background" Value="{DynamicResource RegInputBg}" />
+        <Setter Property="Foreground" Value="{DynamicResource RegForeground}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource RegBorder}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="0" />
+        <Setter Property="Padding" Value="6,2" />
+        <Setter Property="FontSize" Value="12" />
+    </Style>
+
+    <!-- ListBox for the values grid (Name | Type | Data).
+         Compact rows, transparent background (the Border parent paints RegRootBackground),
+         row Foreground bound to ValueRowViewModel.Status via the StatusToBrush converter is
+         handled in the per-row TextBlocks of the DataTemplate (see FileColumnView.axaml). -->
+    <Style Selector="ListBox">
+        <Setter Property="Background" Value="{DynamicResource RegRootBackground}" />
+        <Setter Property="Foreground" Value="{DynamicResource RegForeground}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+    </Style>
+
+    <Style Selector="ListBoxItem">
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="MinHeight" Value="22" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource RegSelectionBg}" />
+    </Style>
+
+    <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource RegButtonHover}" />
+    </Style>
+
+    <Style Selector="ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource RegSelectionBg}" />
+    </Style>
+
+    <!-- TreeView: compact, dark, white default text -->
+    <Style Selector="TreeView">
+        <Setter Property="Background" Value="{DynamicResource RegRootBackground}" />
+        <Setter Property="Foreground" Value="{DynamicResource RegForeground}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="2" />
+        <Setter Property="ScrollViewer.AllowAutoHide" Value="False" />
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto" />
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto" />
+    </Style>
+
+    <Style Selector="TreeViewItem">
+        <Setter Property="MinHeight" Value="20" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{DynamicResource RegForeground}" />
+    </Style>
+
+    <Style Selector="TreeViewItem /template/ ContentPresenter#PART_HeaderPresenter">
+        <Setter Property="TextElement.Foreground" Value="{DynamicResource RegForeground}" />
+    </Style>
+
+    <Style Selector="TreeViewItem:selected /template/ Border#PART_LayoutRoot">
+        <Setter Property="Background" Value="{DynamicResource RegSelectionBg}" />
+    </Style>
+
+    <!-- ScrollBars always at full width AND docking (no overlay).
+         AllowAutoHide=False on ScrollViewer flips the Fluent template out of overlay mode:
+         the H-bar properly reduces the V-content area so the V-bar triggers in time. -->
+    <Style Selector="ScrollViewer">
+        <Setter Property="AllowAutoHide" Value="False" />
+    </Style>
+
+    <Style Selector="ScrollBar">
+        <Setter Property="AllowAutoHide" Value="False" />
+    </Style>
+
+    <Style Selector="ScrollBar /template/ Thumb">
+        <Setter Property="RenderTransform" Value="none" />
+    </Style>
+
+    <Style Selector="ScrollBar:vertical">
+        <Setter Property="Width" Value="14" />
+        <Setter Property="MinWidth" Value="14" />
+    </Style>
+
+    <Style Selector="ScrollBar:horizontal">
+        <Setter Property="Height" Value="14" />
+        <Setter Property="MinHeight" Value="14" />
+    </Style>
+
+    <!-- Background-fill ProgressBar used during the Compare operation (no rounded corners,
+         no padding, fills the entire host area, transparent track so the underlying panel
+         background shows through where progress hasn't reached yet). -->
+    <Style Selector="ProgressBar.background-fill">
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{DynamicResource RegProgressFill}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CornerRadius" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="VerticalAlignment" Value="Stretch" />
+    </Style>
+
+    <Style Selector="ProgressBar.background-fill /template/ Border#PART_Indicator">
+        <Setter Property="CornerRadius" Value="0" />
+    </Style>
+
+    <Style Selector="ProgressBar.background-fill /template/ Border#PART_IndicatorContainer">
+        <Setter Property="CornerRadius" Value="0" />
+    </Style>
+
+    <!-- Vertical splitter inside a column -->
+    <Style Selector="GridSplitter">
+        <Setter Property="Background" Value="{DynamicResource RegBorder}" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="MinWidth" Value="0" />
+    </Style>
+
+    <!-- Right-edge column resize Thumb -->
+    <Style Selector="Thumb.column-resize">
+        <Setter Property="Background" Value="{DynamicResource RegBorder}" />
+        <Setter Property="Cursor" Value="SizeWestEast" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Background="{TemplateBinding Background}" />
+            </ControlTemplate>
+        </Setter>
+    </Style>
+
+    <Style Selector="Thumb.column-resize:pointerover">
+        <Setter Property="Background" Value="{DynamicResource RegButtonHover}" />
+    </Style>
+
+</Styles>

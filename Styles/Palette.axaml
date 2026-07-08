@@ -1,0 +1,57 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        Color palette for the dark and light theme variants.
+    -->
+    <Styles.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Dark">
+                    <!-- Backgrounds -->
+                    <SolidColorBrush x:Key="RegRootBackground" Color="#2D2D30" />
+                    <SolidColorBrush x:Key="RegPanelBackground" Color="#282D32" />
+                    <SolidColorBrush x:Key="RegSecondaryPanel" Color="#434346" />
+                    <SolidColorBrush x:Key="RegColumnHeader" Color="#282D32" />
+                    <SolidColorBrush x:Key="RegSearchHeader" Color="#3A2D32" />
+                    <SolidColorBrush x:Key="RegBorder" Color="#505050" />
+                    <SolidColorBrush x:Key="RegButtonBg" Color="#2D2D30" />
+                    <SolidColorBrush x:Key="RegButtonHover" Color="#37373A" />
+                    <SolidColorBrush x:Key="RegSelectionBg" Color="#141417" />
+                    <SolidColorBrush x:Key="RegInputBg" Color="#2D2D30" />
+                    <SolidColorBrush x:Key="RegProgressFill" Color="#2E4654" />
+
+                    <!-- Foreground -->
+                    <SolidColorBrush x:Key="RegForeground" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="RegMutedForeground" Color="#C8C8C8" />
+
+                    <!-- Diff colors (slightly brightened for dark backgrounds) -->
+                    <SolidColorBrush x:Key="RegDiffMissing" Color="#E07070" />
+                    <SolidColorBrush x:Key="RegDiffAdded" Color="#A4C46C" />
+                    <SolidColorBrush x:Key="RegDiffDifferent" Color="#7CB0FF" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="RegRootBackground" Color="#F0F0F0" />
+                    <SolidColorBrush x:Key="RegPanelBackground" Color="#C3C8D2" />
+                    <SolidColorBrush x:Key="RegSecondaryPanel" Color="#DCDCDC" />
+                    <SolidColorBrush x:Key="RegColumnHeader" Color="#C3C8D2" />
+                    <SolidColorBrush x:Key="RegSearchHeader" Color="#D5C0CC" />
+                    <SolidColorBrush x:Key="RegBorder" Color="#A0A0A0" />
+                    <SolidColorBrush x:Key="RegButtonBg" Color="#F0F0F0" />
+                    <SolidColorBrush x:Key="RegButtonHover" Color="#E0E0E0" />
+                    <SolidColorBrush x:Key="RegSelectionBg" Color="#C3C8D2" />
+                    <SolidColorBrush x:Key="RegInputBg" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="RegProgressFill" Color="#9FBED9" />
+
+                    <SolidColorBrush x:Key="RegForeground" Color="#000000" />
+                    <SolidColorBrush x:Key="RegMutedForeground" Color="#404040" />
+
+                    <SolidColorBrush x:Key="RegDiffMissing" Color="#CD5C5C" />
+                    <SolidColorBrush x:Key="RegDiffAdded" Color="#6B8E23" />
+                    <SolidColorBrush x:Key="RegDiffDifferent" Color="#4A78D6" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+        </ResourceDictionary>
+    </Styles.Resources>
+
+</Styles>

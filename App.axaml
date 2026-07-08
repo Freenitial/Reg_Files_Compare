@@ -1,0 +1,19 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:converters="clr-namespace:RegCompare.Converters"
+             x:Class="RegCompare.App"
+             RequestedThemeVariant="Dark">
+
+    <Application.Resources>
+        <converters:DiffStatusToBrushConverter x:Key="StatusToBrush" />
+        <converters:BoolToFontWeightConverter x:Key="BoolToFontWeight" />
+        <converters:BoolToTextDecorationsConverter x:Key="BoolToStrikethrough" />
+    </Application.Resources>
+
+    <Application.Styles>
+        <FluentTheme />
+        <StyleInclude Source="/Styles/Palette.axaml" />
+        <StyleInclude Source="/Styles/ControlStyles.axaml" />
+    </Application.Styles>
+
+</Application>

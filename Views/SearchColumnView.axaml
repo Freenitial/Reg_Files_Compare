@@ -1,0 +1,189 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:RegCompare.ViewModels"
+             mc:Ignorable="d"
+             x:Class="RegCompare.Views.SearchColumnView"
+             x:Name="Self"
+             x:DataType="vm:SearchColumnViewModel"
+             Width="{Binding ColumnWidth, Mode=TwoWay}"
+             MinWidth="200">
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="4" />
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0"
+                BorderBrush="{DynamicResource RegBorder}"
+                BorderThickness="1,0,0,0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="20" />
+                    <RowDefinition Height="20" />
+                    <RowDefinition Height="*" MinHeight="100" />
+                    <RowDefinition Height="4" />
+                    <RowDefinition Height="*" MinHeight="60" />
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0"
+                        Background="{DynamicResource RegSearchHeader}">
+                    <Grid ColumnDefinitions="*,22">
+                        <TextBlock Grid.Column="0"
+                                   Text="{Binding Title}"
+                                   FontWeight="Bold"
+                                   VerticalAlignment="Center"
+                                   Padding="6,0,0,0"
+                                   TextTrimming="CharacterEllipsis"
+                                   Foreground="{DynamicResource RegForeground}" />
+                        <Button Grid.Column="1"
+                                Classes="close"
+                                Content="X"
+                                Command="{Binding RemoveColumnCommand}" />
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="1"
+                        Background="{DynamicResource RegSearchHeader}"
+                        BorderBrush="{DynamicResource RegBorder}"
+                        BorderThickness="0,0,0,1" />
+
+                <Grid Grid.Row="2" RowDefinitions="*,20">
+                    <TreeView Grid.Row="0"
+                              ItemsSource="{Binding SearchRoots}"
+                              SelectedItem="{Binding SelectedSearchNode, Mode=TwoWay}">
+                        <TreeView.Styles>
+                            <Style Selector="TreeViewItem" x:DataType="vm:SearchResultNodeViewModel">
+                                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                            </Style>
+                        </TreeView.Styles>
+                        <TreeView.ItemTemplate>
+                            <TreeDataTemplate ItemsSource="{Binding Children}" DataType="vm:SearchResultNodeViewModel">
+                                <TextBlock Text="{Binding DisplayText}"
+                                           FontWeight="{Binding IsFileRoot, Converter={StaticResource BoolToFontWeight}}"
+                                           TextTrimming="CharacterEllipsis"
+                                           Foreground="{DynamicResource RegForeground}" />
+                            </TreeDataTemplate>
+                        </TreeView.ItemTemplate>
+                    </TreeView>
+
+                    <Border Grid.Row="1"
+                            Background="{DynamicResource RegColumnHeader}"
+                            BorderBrush="{DynamicResource RegBorder}"
+                            BorderThickness="0,1,0,0">
+                        <TextBlock Text="{Binding StatusText}"
+                                   FontSize="11"
+                                   VerticalAlignment="Center"
+                                   Padding="6,0"
+                                   TextTrimming="CharacterEllipsis"
+                                   Foreground="{DynamicResource RegForeground}" />
+                    </Border>
+                </Grid>
+
+                <GridSplitter Grid.Row="3"
+                              Height="4"
+                              HorizontalAlignment="Stretch"
+                              ResizeDirection="Rows"
+                              ResizeBehavior="PreviousAndNext" />
+
+                <Border Grid.Row="4"
+                        Background="{DynamicResource RegRootBackground}">
+                    <Grid RowDefinitions="22,*">
+                        <Border Grid.Row="0"
+                                Background="{DynamicResource RegSecondaryPanel}"
+                                BorderBrush="{DynamicResource RegBorder}"
+                                BorderThickness="0,0,0,1">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="{Binding Main.ValuesNameColumnWidth, Mode=TwoWay}" />
+                                    <ColumnDefinition Width="4" />
+                                    <ColumnDefinition Width="{Binding Main.ValuesTypeColumnWidth, Mode=TwoWay}" />
+                                    <ColumnDefinition Width="4" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Name"
+                                           Padding="5,2" FontSize="12"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"
+                                           Foreground="{DynamicResource RegForeground}" />
+                                <Thumb Grid.Column="1"
+                                       Classes="column-resize"
+                                       DragDelta="OnNameThumbDragDelta"
+                                       DoubleTapped="OnNameThumbDoubleTapped"
+                                       ToolTip.Tip="Drag to resize Name column. Double-click to auto-fit." />
+                                <TextBlock Grid.Column="2" Text="Type"
+                                           Padding="5,2" FontSize="12"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"
+                                           Foreground="{DynamicResource RegForeground}" />
+                                <Thumb Grid.Column="3"
+                                       Classes="column-resize"
+                                       DragDelta="OnTypeThumbDragDelta"
+                                       DoubleTapped="OnTypeThumbDoubleTapped"
+                                       ToolTip.Tip="Drag to resize Type column. Double-click to auto-fit." />
+                                <TextBlock Grid.Column="4" Text="Data"
+                                           Padding="5,2" FontSize="12"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"
+                                           Foreground="{DynamicResource RegForeground}" />
+                            </Grid>
+                        </Border>
+
+                        <ListBox Grid.Row="1"
+                                 x:Name="SearchValuesGrid"
+                                 Grid.IsSharedSizeScope="True"
+                                 ItemsSource="{Binding ValueRows}"
+                                 SelectionMode="Multiple,Toggle"
+                                 Background="Transparent"
+                                 BorderThickness="0"
+                                 ScrollViewer.AllowAutoHide="False"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto">
+                            <ListBox.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel />
+                                </ItemsPanelTemplate>
+                            </ListBox.ItemsPanel>
+                            <ListBox.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="Copy Row(s)" Click="OnGridCopyRowsClick" />
+                                    <MenuItem Header="Copy Name" Click="OnGridCopyNamesClick" />
+                                    <MenuItem Header="Copy Data" Click="OnGridCopyDataClick" />
+                                </ContextMenu>
+                            </ListBox.ContextMenu>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate DataType="vm:ValueRowViewModel">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="{Binding DataContext.Main.ValuesNameColumnWidth, ElementName=Self}" />
+                                            <ColumnDefinition Width="4" />
+                                            <ColumnDefinition Width="{Binding DataContext.Main.ValuesTypeColumnWidth, ElementName=Self}" />
+                                            <ColumnDefinition Width="4" />
+                                            <ColumnDefinition Width="Auto" SharedSizeGroup="DataCol" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                   Padding="5,0" VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="2" Text="{Binding Type}"
+                                                   Padding="5,0" VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="4" Text="{Binding DisplayValue}"
+                                                   Padding="5,0" VerticalAlignment="Center"
+                                                   TextWrapping="NoWrap" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
+
+        <Thumb Grid.Column="1"
+               Classes="column-resize"
+               DragDelta="OnResizeDelta" />
+    </Grid>
+
+</UserControl>

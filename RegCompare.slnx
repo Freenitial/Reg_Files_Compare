@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/Tests/">
+    <Project Path="Tests/RegCompare.Tests.csproj" />
+  </Folder>
+  <Project Path="RegCompare.csproj" />
+</Solution>
