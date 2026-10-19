@@ -48,33 +48,50 @@
                 <Border Grid.Row="1"
                         Background="{DynamicResource RegSearchHeader}"
                         BorderBrush="{DynamicResource RegBorder}"
-                        BorderThickness="0,0,0,1" />
+                        BorderThickness="0,0,0,1">
+                    <TextBlock Text="{Binding InfoText}"
+                               FontSize="11"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource RegForeground}" />
+                </Border>
 
                 <Grid Grid.Row="2" RowDefinitions="*,20">
-                    <TreeView Grid.Row="0"
-                              ItemsSource="{Binding SearchRoots}"
-                              SelectedItem="{Binding SelectedSearchNode, Mode=TwoWay}">
-                        <TreeView.Styles>
-                            <Style Selector="TreeViewItem" x:DataType="vm:SearchResultNodeViewModel">
-                                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
-                            </Style>
-                        </TreeView.Styles>
-                        <TreeView.ItemTemplate>
-                            <TreeDataTemplate ItemsSource="{Binding Children}" DataType="vm:SearchResultNodeViewModel">
-                                <TextBlock Text="{Binding DisplayText}"
-                                           ToolTip.Tip="{Binding ToolTip}"
-                                           FontWeight="{Binding IsFileRoot, Converter={StaticResource BoolToFontWeight}}"
-                                           TextTrimming="CharacterEllipsis"
-                                           Foreground="{DynamicResource RegForeground}" />
-                            </TreeDataTemplate>
-                        </TreeView.ItemTemplate>
-                    </TreeView>
+                    <ListBox Grid.Row="0"
+                             x:Name="ResultsTree"
+                             Classes="tree"
+                             ItemsSource="{Binding Rows}"
+                             SelectionMode="Single">
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <!-- As wide as the widest row, not the widest on screen: see TreeRows.Widest. -->
+                                <VirtualizingStackPanel MinWidth="{Binding Rows.Widest}" />
+                            </ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="vm:SearchResultNodeViewModel">
+                                <StackPanel Orientation="Horizontal" Margin="{Binding Indent}">
+                                    <Panel Width="18">
+                                        <ToggleButton Classes="expander"
+                                                      IsVisible="{Binding HasChildren}"
+                                                      IsChecked="{Binding IsExpanded, Mode=TwoWay}" />
+                                    </Panel>
+                                    <TextBlock Text="{Binding DisplayText}"
+                                               ToolTip.Tip="{Binding ToolTip}"
+                                               VerticalAlignment="Center"
+                                               FontWeight="{Binding IsFileRoot, Converter={StaticResource BoolToFontWeight}}"
+                                               Foreground="{DynamicResource RegForeground}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
 
                     <Border Grid.Row="1"
                             Background="{DynamicResource RegColumnHeader}"
                             BorderBrush="{DynamicResource RegBorder}"
                             BorderThickness="0,1,0,0">
                         <TextBlock Text="{Binding StatusText}"
+                                   ToolTip.Tip="{Binding StatusText}"
                                    FontSize="11"
                                    VerticalAlignment="Center"
                                    Padding="6,0"
@@ -92,11 +109,13 @@
                 <Border Grid.Row="4"
                         Background="{DynamicResource RegRootBackground}">
                     <Grid RowDefinitions="22,*">
+                        <!-- Moved sideways with the rows (ValuesHeaderFollowsRows), clipped to the column. -->
                         <Border Grid.Row="0"
                                 Background="{DynamicResource RegSecondaryPanel}"
                                 BorderBrush="{DynamicResource RegBorder}"
-                                BorderThickness="0,0,0,1">
-                            <Grid>
+                                BorderThickness="0,0,0,1"
+                                ClipToBounds="True">
+                            <Grid x:Name="ValuesHeader">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="{Binding Main.ValuesNameColumnWidth, Mode=TwoWay}" />
                                     <ColumnDefinition Width="4" />
@@ -165,12 +184,14 @@
                                             <ColumnDefinition Width="{Binding DataContext.DataColumnWidth, ElementName=Self}" />
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" Text="{Binding DisplayName}"
+                                                   ToolTip.Tip="{Binding DisplayName}"
                                                    Padding="5,0" VerticalAlignment="Center"
                                                    TextTrimming="CharacterEllipsis" />
                                         <TextBlock Grid.Column="2" Text="{Binding Type}"
+                                                   ToolTip.Tip="{Binding Type}"
                                                    Padding="5,0" VerticalAlignment="Center"
                                                    TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Column="4" Text="{Binding DisplayValue}"
+                                        <TextBlock Grid.Column="4" Text="{Binding ShownValue}"
                                                    Padding="5,0" VerticalAlignment="Center"
                                                    TextWrapping="NoWrap" />
                                     </Grid>

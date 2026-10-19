@@ -53,6 +53,9 @@ public partial class MainWindow : Window
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr SendMessageW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
     public MainWindow()
     {
         InitializeComponent();
@@ -85,7 +88,21 @@ public partial class MainWindow : Window
         if (DataContext is MainWindowViewModel vm)
         {
             vm.Theme.ThemeApplied += (_, _) => ApplyWin32TitleBarTheme();
+            vm.Columns.CollectionChanged += OnColumnsChanged;
         }
+    }
+
+    // A new search column is added at the right end of the columns: scroll there, or Enter would seem
+    // to do nothing when the file columns fill the window. After the layout that makes it room.
+    private void OnColumnsChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        if (e.Action != System.Collections.Specialized.NotifyCollectionChangedAction.Add
+            || e.NewItems?[0] is not SearchColumnViewModel) return;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (this.FindControl<ScrollViewer>("ColumnsScroller") is { } scroller)
+                scroller.Offset = new Vector(Math.Max(0, scroller.Extent.Width - scroller.Viewport.Width), scroller.Offset.Y);
+        }, DispatcherPriority.Background);
     }
 
     private void ApplyWin32TitleBarTheme()
@@ -127,8 +144,9 @@ public partial class MainWindow : Window
         SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 
+        // Back to the state the window is really in: a window opened behind another one stays drawn inactive.
         SendMessageW(hwnd, WM_NCACTIVATE, IntPtr.Zero, IntPtr.Zero);
-        SendMessageW(hwnd, WM_NCACTIVATE, new IntPtr(1), IntPtr.Zero);
+        if (GetForegroundWindow() == hwnd) SendMessageW(hwnd, WM_NCACTIVATE, new IntPtr(1), IntPtr.Zero);
 
         RedrawWindow(hwnd, IntPtr.Zero, IntPtr.Zero,
             RDW_FRAME | RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW);
@@ -137,7 +155,14 @@ public partial class MainWindow : Window
     private async void OnBrowseClick(object? sender, RoutedEventArgs e)
     {
         if (DataContext is not MainWindowViewModel vm) return;
-        await vm.BrowseFilesCommand.ExecuteAsync(this);
+        try
+        {
+            await vm.BrowseFilesCommand.ExecuteAsync(this);
+        }
+        catch (Exception ex)
+        {
+            vm.StatusText = $"The files could not be opened: {ex.Message}";
+        }
     }
 
     private void OnHelpClick(object? sender, RoutedEventArgs e) => OpenHelp();
@@ -197,6 +222,7 @@ public partial class MainWindow : Window
             .Cast<string>()
             .ToList();
 
-        if (paths.Count > 0) vm.HandleDroppedPaths(paths);
+        // Listed and read off the UI thread: the drop (and the program it comes from) is not held.
+        if (paths.Count > 0) _ = vm.HandleDroppedPathsAsync(paths);
     }
 }

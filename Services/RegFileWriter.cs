@@ -22,7 +22,9 @@ namespace RegCompare.Services;
 /// </list>
 /// In both cases the output declares every parent key as an empty header (no values),
 /// preserving the path hierarchy without leaking sibling subkeys' values into the export. Key and
-/// value names are written with the file's own spelling, data exactly as read.
+/// value names are written with the file's own spelling, data exactly as read, except the line breaks
+/// of a string from a file whose lines end with \n: the export's lines end with \r\n, so each \n of
+/// the data is written \r\n (a \r\n, \r\r\n), as reg.exe writes them.
 /// </remarks>
 public static class RegFileWriter
 {
@@ -56,11 +58,12 @@ public static class RegFileWriter
         AppendKeyHeader(sb, key);
         if (file.Data.TryGetValue(key, out var keyValues))
         {
+            // The file's own spelling of each name (the columns may show another file's).
+            var spelling = new Dictionary<string, string>(keyValues.Count, StringComparer.OrdinalIgnoreCase);
+            foreach (var stored in keyValues.Keys) spelling[stored] = stored;
             foreach (var name in valueNames)
             {
-                // The file's own spelling of the name (the columns may show another file's).
-                var stored = keyValues.Keys.FirstOrDefault(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase));
-                if (stored is not null) AppendValueLine(sb, stored, keyValues[stored]);
+                if (spelling.TryGetValue(name, out var stored)) AppendValueLine(sb, file, stored, keyValues[stored]);
             }
         }
         sb.AppendLine();
@@ -91,7 +94,7 @@ public static class RegFileWriter
             AppendKeyHeader(sb, key);
             foreach (var (name, raw) in file.Data[key].OrderBy(static kvp => kvp.Key, StringComparer.OrdinalIgnoreCase))
             {
-                AppendValueLine(sb, name, raw);
+                AppendValueLine(sb, file, name, raw);
             }
             sb.AppendLine();
         }
@@ -136,8 +139,12 @@ public static class RegFileWriter
         sb.Append('[').Append(keyPath).Append(']').AppendLine();
     }
 
-    private static void AppendValueLine(StringBuilder sb, string name, string rawValue)
+    private static void AppendValueLine(StringBuilder sb, RegFile file, string name, string rawValue)
     {
+        // A string of a file whose lines end with \n holds the data's breaks as they are (RegFile.LfLines).
+        if (file.LfLines && rawValue.StartsWith('"') && rawValue.Contains('\n'))
+            rawValue = rawValue.Replace("\n", "\r\n", StringComparison.Ordinal);
+
         // "@" is the default value, whose name is empty; names keep their .reg escapes.
         if (name.Length == 0)
         {

@@ -33,7 +33,7 @@ public partial class App : Application
             Services.GetRequiredService<ThemeService>().Apply();
 
             // Files and folders given on the command line (or dropped on the exe's icon).
-            if (desktop.Args is { Length: > 0 } args) mainVm.OpenAtStart(args);
+            if (desktop.Args is { Length: > 0 } args) _ = mainVm.OpenAtStartAsync(args);
         }
 
         base.OnFrameworkInitializationCompleted();

@@ -66,7 +66,7 @@ public abstract partial class ColumnViewModelBase(MainWindowViewModel main) : Vi
     /// <summary>Size the Data column to the widest datum of <see cref="ValueRows"/>, once they are filled.</summary>
     protected void UpdateDataColumnWidth()
     {
-        var widest = TextWidth.Widest(ValueRows.Select(static row => row.DisplayValue));
+        var widest = TextWidth.Widest(ValueRows.Select(static row => row.ShownValue));
         DataColumnWidth = new GridLength(Math.Ceiling(widest) + DataCellPadding, GridUnitType.Pixel);
     }
 

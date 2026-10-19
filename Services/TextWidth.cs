@@ -72,7 +72,7 @@ public static class TextWidth
     }
 
     /// <summary>The sum of the characters' advances of the longest line (kerning aside).</summary>
-    private static double Estimate(string text)
+    public static double Estimate(string text)
     {
         double line = 0, max = 0;
         foreach (var c in text)

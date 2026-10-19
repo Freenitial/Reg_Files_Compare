@@ -39,7 +39,7 @@
                     <SolidColorBrush x:Key="RegBorder" Color="#A0A0A0" />
                     <SolidColorBrush x:Key="RegButtonBg" Color="#F0F0F0" />
                     <SolidColorBrush x:Key="RegButtonHover" Color="#E0E0E0" />
-                    <SolidColorBrush x:Key="RegSelectionBg" Color="#C3C8D2" />
+                    <SolidColorBrush x:Key="RegSelectionBg" Color="#B9D3F0" />
                     <SolidColorBrush x:Key="RegInputBg" Color="#FFFFFF" />
                     <SolidColorBrush x:Key="RegProgressFill" Color="#9FBED9" />
 

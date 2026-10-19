@@ -182,7 +182,8 @@ Windows Registry Editor Version 5.00
             Assert.Equal(2, values.Count);
             Assert.Equal("\"Backup \r\nLast run: FAILED = disk full\r\n[not a key]\r\n  said \\\"no\\\"\"", values["Tip"]);
             Assert.Equal("\"x\"", values["Next"]);
-            Assert.Equal("Backup \r\nLast run: FAILED = disk full\r\n[not a key]\r\n  said \"no\"", RegTypeFormatter.GetDisplayValue(values["Tip"]));
+            // Shown with one line break per break of the data.
+            Assert.Equal("Backup \nLast run: FAILED = disk full\n[not a key]\n  said \"no\"", RegTypeFormatter.GetDisplayValue(values["Tip"]));
         }
         finally { File.Delete(path); }
     }
@@ -258,5 +259,108 @@ Windows Registry Editor Version 5.00
             Assert.Equal("\"b\"", file.Data["HKEY_CURRENT_USER\\Test"]["a"]);
         }
         finally { File.Delete(path); }
+    }
+
+    // reg.exe writes a line break of the data as \r\n, and a \r\n of the data as \r\r\n: the data is kept
+    // exactly as written (not one line break more).
+    [Fact]
+    public void Parse_StringLineBreaks_AreKeptAsWritten()
+    {
+        var path = WriteTemp("Windows Registry Editor Version 5.00\r\n\r\n[HKEY_CURRENT_USER\\Test]\r\n"
+            + "\"Lf\"=\"a\r\nb\"\r\n\"CrLf\"=\"a\r\r\nb\"\r\n\"Next\"=\"x\"\r\n");
+        try
+        {
+            var values = new RegFileParser().Parse(path).Data["HKEY_CURRENT_USER\\Test"];
+            Assert.Equal("\"a\r\nb\"", values["Lf"]);
+            Assert.Equal("\"a\r\r\nb\"", values["CrLf"]);
+            Assert.Equal("\"x\"", values["Next"]);
+            Assert.Equal("a\nb", RegTypeFormatter.GetDisplayValue(values["Lf"]));
+        }
+        finally { File.Delete(path); }
+    }
+
+    // Comments after the data, a comment after a key, comment and blank lines inside a hex value, a key
+    // written with a trailing backslash: read as Registry Editor reads them.
+    [Fact]
+    public void Parse_CommentsAndKeyForms_AsRegistryEditorReadsThem()
+    {
+        var path = WriteTemp("Windows Registry Editor Version 5.00\r\n\r\n"
+            + "[HKEY_CURRENT_USER\\A] ; the first key\r\n"
+            + "\"s\"=\"Value1\"  ;comment\r\n"
+            + "\"d\"=dword:00000004;comment\r\n"
+            + "\"e\"=hex(2):25,00,50,00,00,00  ;comment\r\n"
+            + "\"m\"=hex(7):4c,00,69,00,\\\r\n  ;comment\r\n\r\n  6e,00,65,00,00,00,00,00\r\n"
+            + "\"h\"=hex:01,02,\\;comment\r\n  03\r\n"
+            + "#\"Comment1\"=\"Value 1\"\r\nfoo=bar\r\n"
+            + "[HKEY_CURRENT_USER\\B\\]\r\n\"y\"=\"2\"\r\n"
+            + "[ HKEY_CURRENT_USER\\C]\r\n\"lost\"=\"1\"\r\n"
+            + "[HKEY_CURRENT_USER\\D\r\n\"lost\"=\"2\"\r\n");
+        try
+        {
+            var data = new RegFileParser().Parse(path).Data;
+            Assert.Equal(["HKEY_CURRENT_USER\\A", "HKEY_CURRENT_USER\\B"], data.Keys.Order());
+            var a = data["HKEY_CURRENT_USER\\A"];
+            Assert.Equal(["d", "e", "h", "m", "s"], a.Keys.Order());
+            Assert.Equal("\"Value1\"", a["s"]);
+            Assert.Equal("dword:00000004", a["d"]);
+            Assert.Equal("hex(2):25,00,50,00,00,00", a["e"]);
+            Assert.Equal("hex(7):4c,00,69,00,6e,00,65,00,00,00,00,00", a["m"]);
+            Assert.Equal("hex:01,02,03", a["h"]);
+            Assert.Equal("Line", RegTypeFormatter.GetDisplayValue(a["m"]));
+            Assert.Equal("\"2\"", data["HKEY_CURRENT_USER\\B"]["y"]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    // A string broken by an unescaped backslash before its quote, or never closed: its line alone is
+    // dropped and the lines below are read as usual. A string on several lines may end with a comment.
+    // A key line may end with a comment holding "]", and a key name may hold "]" itself.
+    [Fact]
+    public void Parse_BrokenStringsAndBracketsInKeys()
+    {
+        var path = WriteTemp("Windows Registry Editor Version 5.00\r\n\r\n"
+            + "[HKEY_CURRENT_USER\\A] ; see [docs]\r\n"
+            + "\"Path\"=\"C:\\Dir\\\"\r\n"
+            + "\"Next\"=\"x\"\r\n"
+            + "\"Lines\"=\"a\r\nb\"  ; two lines\r\n"
+            + "\"Open\"=\"never closed\r\n"
+            + "[HKEY_CURRENT_USER\\Software\\[x]]\r\n"
+            + "\"y\"=\"2\"\r\n");
+        try
+        {
+            var data = new RegFileParser().Parse(path).Data;
+            Assert.Equal(["HKEY_CURRENT_USER\\A", "HKEY_CURRENT_USER\\Software\\[x]"], data.Keys.Order());
+            var a = data["HKEY_CURRENT_USER\\A"];
+            Assert.Equal(["Lines", "Next"], a.Keys.Order());
+            Assert.Equal("\"x\"", a["Next"]);
+            Assert.Equal("\"a\r\nb\"", a["Lines"]);
+            Assert.Equal("\"2\"", data["HKEY_CURRENT_USER\\Software\\[x]"]["y"]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    // The line ending most lines use is the file's: \n alone marks a file whose lines were converted.
+    [Fact]
+    public void Parse_LineEndings_AreTheHeaders()
+    {
+        var lf = WriteTemp("Windows Registry Editor Version 5.00\n\n[HKEY_CURRENT_USER\\T]\n\"s\"=\"x\"\n");
+        var crlf = WriteTemp("Windows Registry Editor Version 5.00\r\n\r\n[HKEY_CURRENT_USER\\T]\r\n\"s\"=\"x\"\r\n");
+        try
+        {
+            Assert.True(new RegFileParser().Parse(lf).LfLines);
+            Assert.False(new RegFileParser().Parse(crlf).LfLines);
+            // A header added by a script with another ending does not decide.
+            File.WriteAllText(lf, "Windows Registry Editor Version 5.00\n\r\n[HKEY_CURRENT_USER\\T]\r\n\"s\"=\"x\"\r\n");
+            Assert.False(new RegFileParser().Parse(lf).LfLines);
+            // A converted file whose strings hold \r\n data: those breaks are data, not line endings.
+            var strings = string.Concat(Enumerable.Range(0, 5).Select(static i => $"\"v{i}\"=\"a\r\nb\"\n"));
+            File.WriteAllText(lf, "Windows Registry Editor Version 5.00\n\n[HKEY_CURRENT_USER\\T]\n" + strings);
+            Assert.True(new RegFileParser().Parse(lf).LfLines);
+        }
+        finally
+        {
+            File.Delete(lf);
+            File.Delete(crlf);
+        }
     }
 }

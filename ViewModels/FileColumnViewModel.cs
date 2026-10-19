@@ -30,20 +30,25 @@ public sealed partial class FileColumnViewModel : ColumnViewModelBase
     /// <summary>The bound .reg file.</summary>
     public RegFile File { get; }
 
-    /// <summary>Root nodes bound to the column's TreeView.</summary>
+    /// <summary>Root nodes of the column's key tree.</summary>
     public ObservableCollection<KeyNodeViewModel> Roots { get; } = [];
+
+    /// <summary>The visible rows of the key tree, shown by a virtualized list.</summary>
+    public TreeRows<KeyNodeViewModel> Rows { get; } = new(static node => node.Name);
 
     [ObservableProperty]
     private KeyNodeViewModel? _selectedNode;
 
-    public FileColumnViewModel(MainWindowViewModel main, DiffEngine diff, int fileIndex, bool isReference, bool showYearInDate)
+    /// <param name="name">The file as the title names it: its file name, with its folder when another
+    /// compared file has the same name.</param>
+    public FileColumnViewModel(MainWindowViewModel main, DiffEngine diff, int fileIndex, bool isReference, bool showYearInDate, string? name = null)
         : base(main)
     {
         _diff = diff;
         FileIndex = fileIndex;
         File = diff.Files[fileIndex];
         IsReference = isReference;
-        Title = (isReference ? "(REF) " : "") + File.FileName;
+        Title = (isReference ? "(REF) " : "") + (name ?? File.FileName);
         HeaderToolTip = File.Path;
         var dateFormat = showYearInDate ? "dd/MM/yyyy HH:mm" : "dd/MM HH:mm";
         InfoText = $"{File.Modified.ToString(dateFormat, CultureInfo.InvariantCulture)}   -   {File.DisplaySize}";
@@ -53,7 +58,26 @@ public sealed partial class FileColumnViewModel : ColumnViewModelBase
 
         BuildTree();
         AutoExpandChanges();
+        Rows.SetRoots(Roots);
         UpdateStatusFromSelection();
+    }
+
+    /// <summary>Expand every key of the tree (one change for the list).</summary>
+    public void ExpandAll() => SetExpandedEverywhere(true);
+
+    /// <summary>Collapse every key of the tree (one change for the list).</summary>
+    public void CollapseAll() => SetExpandedEverywhere(false);
+
+    private void SetExpandedEverywhere(bool expanded)
+    {
+        using (Rows.Batch())
+        {
+            foreach (var root in Roots)
+            {
+                root.IsExpanded = expanded;
+                foreach (var d in root.EnumerateDescendants()) d.IsExpanded = expanded;
+            }
+        }
     }
 
     /// <summary>
@@ -71,6 +95,7 @@ public sealed partial class FileColumnViewModel : ColumnViewModelBase
             ValueRows.Clear();
             BuildTree();
             AutoExpandChanges();
+            Rows.SetRoots(Roots);
         }
         finally { SuppressSelectionPropagation = false; }
 
@@ -85,13 +110,7 @@ public sealed partial class FileColumnViewModel : ColumnViewModelBase
     public void NotifyThemeChanged()
     {
         foreach (var root in Roots) NotifyNodeAndDescendants(root);
-
-        // Re-create value rows for the currently selected key so the row bindings
-        // re-resolve the diff brushes against the new theme; the selected value stays selected.
-        SuppressSelectionPropagation = true;
-        try { UpdateValueRows(SelectedNode?.Path); }
-        finally { SuppressSelectionPropagation = false; }
-        ApplyExternalValueSelection();
+        foreach (var row in ValueRows) row.RefreshThemeBindings();
     }
 
     private static void NotifyNodeAndDescendants(KeyNodeViewModel node)
@@ -295,7 +314,7 @@ public sealed partial class FileColumnViewModel : ColumnViewModelBase
             }
             else if (vStatus == DiffStatus.Hidden) continue;
 
-            var displayValue = hasValueHere ? RegTypeFormatter.GetDisplayValue(hereVals![valueName], File.IsRegedit4) : "";
+            var displayValue = hasValueHere ? RegTypeFormatter.GetDisplayValue(hereVals![valueName], File.IsRegedit4, File.LfLines) : "";
             var typeName = hasValueHere ? RegTypeFormatter.GetTypeName(RegTypeFormatter.InferType(hereVals![valueName])) : "";
 
             var isChange = !IsReference && vStatus is DiffStatus.Missing or DiffStatus.Added or DiffStatus.Different;

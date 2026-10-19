@@ -2,19 +2,29 @@
 [Bb]in/
 [Oo]bj/
 publish/
+TestResults/
 
 # Visual Studio / Rider / VS Code
 .vs/
 .vscode/
 .idea/
+_ReSharper*/
 *.user
 *.suo
+*.userosscache
+*.DotSettings.user
+
+# NuGet
+*.nupkg
+.nuget/
 
 # MSBuild / diagnostics
 *.binlog
 
 # OS
 Thumbs.db
+ehthumbs.db
+Desktop.ini
 .DS_Store
 
 # build.cmd output (signed by sign.cmd)

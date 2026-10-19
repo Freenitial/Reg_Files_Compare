@@ -153,4 +153,34 @@ public class RegFileWriterTests
             File.Delete(exported);
         }
     }
+
+    // The strings of a file whose lines end with \n are written as reg.exe writes them: read back from
+    // the export, they hold the same data (a \r\n of the data included).
+    [Fact]
+    public void Export_OfAConvertedFile_KeepsItsStrings()
+    {
+        var source = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".reg");
+        var export = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".reg");
+        File.WriteAllText(source, "Windows Registry Editor Version 5.00\n\n[HKEY_CURRENT_USER\\K]\n\"Crlf\"=\"a\r\nb\"\n\"Lf\"=\"a\nb\"\n");
+        try
+        {
+            var parser = new RegFileParser();
+            var file = parser.Parse(source);
+            Assert.True(file.LfLines);
+            File.WriteAllBytes(export, RegFileWriter.Encode(file, RegFileWriter.BuildFromSubtree(file, "HKEY_CURRENT_USER\\K")));
+            var back = parser.Parse(export);
+            Assert.False(back.LfLines);
+            foreach (var name in new[] { "Crlf", "Lf" })
+            {
+                var before = file.Data["HKEY_CURRENT_USER\\K"][name];
+                var after = back.Data["HKEY_CURRENT_USER\\K"][name];
+                Assert.True(RegData.Same(before, false, after, false, file.LfLines, back.LfLines), name);
+            }
+        }
+        finally
+        {
+            File.Delete(source);
+            File.Delete(export);
+        }
+    }
 }

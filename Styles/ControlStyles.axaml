@@ -159,6 +159,58 @@
         <Setter Property="Background" Value="{DynamicResource RegSelectionBg}" />
     </Style>
 
+    <!-- Tree lists (the key tree, the search results): compact rows, an arrow that turns when open. -->
+    <Style Selector="ListBox.tree">
+        <Setter Property="Padding" Value="2" />
+        <Setter Property="ScrollViewer.AllowAutoHide" Value="False" />
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto" />
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto" />
+    </Style>
+    <Style Selector="ListBox.tree ListBoxItem">
+        <Setter Property="MinHeight" Value="20" />
+        <Setter Property="Height" Value="20" />
+        <Setter Property="Padding" Value="2,0,8,0" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+    </Style>
+    <Style Selector="ToggleButton.expander">
+        <Setter Property="Width" Value="16" />
+        <Setter Property="Height" Value="16" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+        <Setter Property="Template">
+            <ControlTemplate TargetType="ToggleButton">
+                <Border Background="Transparent">
+                    <Path x:Name="Arrow"
+                          Data="M 0,0 L 4,4 L 0,8"
+                          Stroke="{DynamicResource RegMutedForeground}"
+                          StrokeThickness="1.4"
+                          StrokeLineCap="Round"
+                          StrokeJoin="Round"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Center"
+                          RenderTransformOrigin="50%,50%"
+                          RenderTransform="rotate(0deg)">
+                        <Path.Transitions>
+                            <Transitions>
+                                <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.12" />
+                            </Transitions>
+                        </Path.Transitions>
+                    </Path>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+    <Style Selector="ToggleButton.expander:checked /template/ Path#Arrow">
+        <Setter Property="RenderTransform" Value="rotate(90deg)" />
+    </Style>
+    <Style Selector="ToggleButton.expander:pointerover /template/ Path#Arrow">
+        <Setter Property="Stroke" Value="{DynamicResource RegForeground}" />
+    </Style>
+
     <!-- TreeView: compact, dark, white default text -->
     <Style Selector="TreeView">
         <Setter Property="Background" Value="{DynamicResource RegRootBackground}" />

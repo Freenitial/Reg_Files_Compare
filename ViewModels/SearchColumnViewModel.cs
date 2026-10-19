@@ -21,11 +21,15 @@ public sealed partial class SearchColumnViewModel : ColumnViewModelBase
     /// <summary>The term entered by the user (case-insensitive substring matching).</summary>
     public string Term { get; }
 
-    private readonly IReadOnlyList<RegFile> _files;
-    private readonly IReadOnlyList<int> _fileIndices;
+    /// <summary>The files with results, by index: a file removed meanwhile is not kept in memory for
+    /// nothing by an old search.</summary>
+    private readonly Dictionary<int, RegFile> _files = [];
 
-    /// <summary>Tree roots bound to the search column's TreeView.</summary>
+    /// <summary>Roots of the results tree: one group per file.</summary>
     public ObservableCollection<SearchResultNodeViewModel> SearchRoots { get; } = [];
+
+    /// <summary>The visible rows of the results tree, shown by a virtualized list.</summary>
+    public TreeRows<SearchResultNodeViewModel> Rows { get; } = new(static node => node.DisplayText);
 
     [ObservableProperty]
     private SearchResultNodeViewModel? _selectedSearchNode;
@@ -36,19 +40,20 @@ public sealed partial class SearchColumnViewModel : ColumnViewModelBase
         Term = term;
         Title = $"Search: {term}";
         InfoText = "";
-        _files = files;
-        _fileIndices = fileIndices;
-        BuildResults();
+        BuildResults(files, fileIndices);
     }
 
-    private void BuildResults()
+    private void BuildResults(IReadOnlyList<RegFile> files, IReadOnlyList<int> fileIndices)
     {
         SearchResultNodeViewModel? firstChild = null;
+        var keys = 0;
+        // Files of the same name: their folder tells them apart, as in the reference list.
+        var groupNames = FileNames.Distinct(files.Select(static f => f.Path).ToList());
 
-        foreach (var idx in _fileIndices)
+        foreach (var idx in fileIndices)
         {
-            if (idx < 0 || idx >= _files.Count) continue;
-            var file = _files[idx];
+            if (idx < 0 || idx >= files.Count) continue;
+            var file = files[idx];
 
             var perKey = new Dictionary<string, (bool keyMatched, HashSet<string> values)>(StringComparer.OrdinalIgnoreCase);
 
@@ -73,7 +78,7 @@ public sealed partial class SearchColumnViewModel : ColumnViewModelBase
                     var valueMatched = ValueRowViewModel.DisplayNameOf(valueName).Contains(Term, StringComparison.OrdinalIgnoreCase);
                     if (!valueMatched)
                     {
-                        var disp = RegTypeFormatter.GetDisplayValue(raw, file.IsRegedit4);
+                        var disp = RegTypeFormatter.GetDisplayValue(raw, file.IsRegedit4, file.LfLines);
                         valueMatched = disp.Contains(Term, StringComparison.OrdinalIgnoreCase);
                     }
                     if (valueMatched)
@@ -90,8 +95,10 @@ public sealed partial class SearchColumnViewModel : ColumnViewModelBase
             }
 
             if (perKey.Count == 0) continue;
+            _files[idx] = file;
+            keys += perKey.Count;
 
-            var fileRoot = new SearchResultNodeViewModel(file.FileName, isFileRoot: true) { FileIndex = idx, ToolTip = file.Path };
+            var fileRoot = new SearchResultNodeViewModel(groupNames[idx], isFileRoot: true) { FileIndex = idx, ToolTip = file.Path };
             foreach (var (keyPath, entry) in perKey.OrderBy(static kvp => kvp.Key, KeyPathComparer.Instance))
             {
                 var keyNode = new SearchResultNodeViewModel(keyPath, isFileRoot: false)
@@ -111,6 +118,9 @@ public sealed partial class SearchColumnViewModel : ColumnViewModelBase
         {
             SearchRoots.Add(new SearchResultNodeViewModel("(no results)", isFileRoot: false));
         }
+        InfoText = keys == 0 ? "No match"
+            : $"{keys} key{(keys == 1 ? "" : "s")} in {SearchRoots.Count} file{(SearchRoots.Count == 1 ? "" : "s")}";
+        Rows.SetRoots(SearchRoots);
 
         if (firstChild is not null)
         {
@@ -163,14 +173,16 @@ public sealed partial class SearchColumnViewModel : ColumnViewModelBase
     {
         if (node is null || node.IsFileRoot || string.IsNullOrEmpty(node.KeyPath))
         {
-            ValueRows.Clear();
+            // Emptying the grid clears its selected value: the other columns keep theirs.
+            SuppressSelectionPropagation = true;
+            try { ValueRows.Clear(); }
+            finally { SuppressSelectionPropagation = false; }
             UpdateDataColumnWidth();
             UpdateStatusFromNode(node);
             return;
         }
 
-        if (node.FileIndex < 0 || node.FileIndex >= _files.Count) return;
-        var file = _files[node.FileIndex];
+        if (!_files.TryGetValue(node.FileIndex, out var file)) return;
         var nameSet = node.MatchedValueNames.Count > 0
             ? new HashSet<string>(node.MatchedValueNames, StringComparer.OrdinalIgnoreCase)
             : null;
@@ -185,7 +197,7 @@ public sealed partial class SearchColumnViewModel : ColumnViewModelBase
                 {
                     Name = valueName,
                     Type = RegTypeFormatter.GetTypeName(RegTypeFormatter.InferType(raw)),
-                    DisplayValue = RegTypeFormatter.GetDisplayValue(raw, file.IsRegedit4),
+                    DisplayValue = RegTypeFormatter.GetDisplayValue(raw, file.IsRegedit4, file.LfLines),
                     Status = DiffStatus.Identical,
                     IsChange = false,
                 });
@@ -200,12 +212,12 @@ public sealed partial class SearchColumnViewModel : ColumnViewModelBase
 
     private void UpdateStatusFromNode(SearchResultNodeViewModel? node)
     {
-        if (node is null || node.FileIndex < 0 || node.FileIndex >= _files.Count)
+        if (node is null || !_files.TryGetValue(node.FileIndex, out var file))
         {
             UpdateStatusText(0, 0, 0);
             return;
         }
-        var data = _files[node.FileIndex].Data;
+        var data = file.Data;
         var totalKeys = data.Count;
         var totalValues = 0;
         foreach (var perKey in data.Values) totalValues += perKey.Count;

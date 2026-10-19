@@ -28,10 +28,16 @@ public sealed partial class LoadedFileViewModel : ViewModelBase
     [ObservableProperty]
     private string _displayName;
 
+    /// <summary>The file name, with its folder's name when another loaded file has the same name (the
+    /// Reference list, where a full path would not fit).</summary>
+    [ObservableProperty]
+    private string _shortName;
+
     public LoadedFileViewModel(RegFile file)
     {
         File = file;
         _displayName = file.FileName;
+        _shortName = file.FileName;
     }
 
     partial void OnIsCheckedChanged(bool value) => CheckedToggled?.Invoke();

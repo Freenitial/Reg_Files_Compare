@@ -15,6 +15,7 @@ using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using RegCompare.Services;
 using RegCompare.ViewModels;
@@ -26,15 +27,66 @@ public partial class FileColumnView : UserControl
     private const double MinValuesColumnWidth = 40;
     private const double AutoFitPadding = 16;
 
+    private readonly TreeListSelection<KeyNodeViewModel> _treeSelection;
+
     public FileColumnView()
     {
         InitializeComponent();
+        _treeSelection = new TreeListSelection<KeyNodeViewModel>(
+            this.FindControl<ListBox>("KeysTree")!,
+            nameof(FileColumnViewModel.SelectedNode),
+            static vm => (vm as FileColumnViewModel)?.SelectedNode,
+            static (vm, node) => ((FileColumnViewModel)vm).SelectedNode = node);
         // A row selected to follow another column is brought into view inside this column's tree or
         // grid only: the request stops here, so the columns area does not scroll sideways to it.
         AddHandler(RequestBringIntoViewEvent, static (_, e) => e.Handled = true);
+        ValuesHeaderFollowsRows();
+        ValuesGridKeys.Attach(this.FindControl<ListBox>("ValuesGrid")!);
     }
 
     private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
+
+    /// <summary>
+    /// The values grid's header is above the rows' scroll viewer: it moves sideways with the rows, so its
+    /// titles and resize grips stay over their columns when a wide datum makes the rows scroll.
+    /// </summary>
+    private void ValuesHeaderFollowsRows()
+    {
+        var grid = this.FindControl<ListBox>("ValuesGrid");
+        var header = this.FindControl<Grid>("ValuesHeader");
+        if (grid is null || header is null) return;
+        var shift = new TranslateTransform();
+        header.RenderTransform = shift;
+        grid.TemplateApplied += (_, e) =>
+        {
+            if (e.NameScope.Find<ScrollViewer>("PART_ScrollViewer") is { } rows)
+                rows.ScrollChanged += (_, _) => shift.X = -rows.Offset.X;
+        };
+    }
+
+    protected override void OnDataContextChanged(EventArgs e)
+    {
+        base.OnDataContextChanged(e);
+        if (VisualRoot is not null) AttachTree();
+    }
+
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        AttachTree();
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnDetachedFromVisualTree(e);
+        _treeSelection.Attach(null, null);
+    }
+
+    private void AttachTree()
+    {
+        var vm = DataContext as FileColumnViewModel;
+        _treeSelection.Attach(vm, vm?.Rows);
+    }
 
     /// <summary>Outer right-edge Thumb: resizes the whole FileColumnView panel.</summary>
     private void OnResizeDelta(object? sender, VectorEventArgs e)

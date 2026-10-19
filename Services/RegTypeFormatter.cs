@@ -20,11 +20,19 @@ public static class RegTypeFormatter
     {
         var span = raw.AsSpan();
         if (span.Length >= 2 && span[0] == '"' && span[^1] == '"') return RegValueType.RegSz;
-        if (span.StartsWith("hex(2):", StringComparison.OrdinalIgnoreCase)) return RegValueType.RegExpandSz;
-        if (span.StartsWith("hex(7):", StringComparison.OrdinalIgnoreCase)) return RegValueType.RegMultiSz;
-        if (span.StartsWith("hex(b):", StringComparison.OrdinalIgnoreCase)) return RegValueType.RegQword;
-        if (span.StartsWith("hex(4):", StringComparison.OrdinalIgnoreCase)) return RegValueType.RegDword;
-        // Any other hex(N) form (REG_NONE, REG_LINK, resource lists...) is shown as binary data.
+        // The type a hex(n) prefix names, however written (hex(4), hex(04)); any other type (REG_NONE,
+        // REG_LINK, resource lists...) is shown as binary data.
+        if (RegData.TryParseHexType(raw, out var type, out _))
+        {
+            return type switch
+            {
+                2 => RegValueType.RegExpandSz,
+                7 => RegValueType.RegMultiSz,
+                0xb => RegValueType.RegQword,
+                4 => RegValueType.RegDword,
+                _ => RegValueType.RegBinary,
+            };
+        }
         if (span.StartsWith("hex(", StringComparison.OrdinalIgnoreCase)) return RegValueType.RegBinary;
         if (span.StartsWith("hex:", StringComparison.OrdinalIgnoreCase)) return RegValueType.RegBinary;
         if (span.StartsWith("dword:", StringComparison.OrdinalIgnoreCase)) return RegValueType.RegDword;
@@ -59,12 +67,14 @@ public static class RegTypeFormatter
     /// MULTI_SZ and EXPAND_SZ bytes are UTF-16LE in a version 5 file (an odd byte count is shown as
     /// raw text), ANSI in a <c>REGEDIT4</c> file (<paramref name="regedit4"/>).
     /// </summary>
-    public static string GetDisplayValue(string raw, bool regedit4 = false)
+    public static string GetDisplayValue(string raw, bool regedit4 = false, bool lfLines = false)
     {
         var span = raw.AsSpan();
         if (span.Length >= 2 && span[0] == '"' && span[^1] == '"')
         {
-            return UnescapeRegString(raw.AsSpan(1, raw.Length - 2));
+            // reg.exe writes each \n of the data as \r\n (a \r\n as \r\r\n): the data is shown, one break
+            // per break of the data (see RegData.StringData).
+            return RegData.StringData(UnescapeRegString(raw.AsSpan(1, raw.Length - 2)), lfLines);
         }
         if (span.StartsWith("dword:", StringComparison.OrdinalIgnoreCase))
         {
@@ -84,21 +94,18 @@ public static class RegTypeFormatter
             }
             return "0x" + hex;
         }
-        if (span.StartsWith("hex(7):", StringComparison.OrdinalIgnoreCase))
+        // Hex data read as RegData compares it (hex(04), a trailing comma), so that what shows the same
+        // compares the same.
+        if (RegData.TryParseHex(raw, out var type, out var bytes))
         {
-            return DecodeMultiSz(raw.AsSpan(7), regedit4) ?? raw;
-        }
-        if (span.StartsWith("hex(2):", StringComparison.OrdinalIgnoreCase))
-        {
-            return DecodeExpandSz(raw.AsSpan(7), regedit4) ?? raw;
-        }
-        if (span.StartsWith("hex(b):", StringComparison.OrdinalIgnoreCase))
-        {
-            return DecodeLittleEndianNumber(raw.AsSpan(7), byteCount: 8) ?? raw;
-        }
-        if (span.StartsWith("hex(4):", StringComparison.OrdinalIgnoreCase))
-        {
-            return DecodeLittleEndianNumber(raw.AsSpan(7), byteCount: 4) ?? raw;
+            return type switch
+            {
+                7 => DecodeMultiSz(bytes, regedit4),
+                2 => DecodeExpandSz(bytes, regedit4),
+                0xb => DecodeLittleEndianNumber(bytes, byteCount: 8),
+                4 => DecodeLittleEndianNumber(bytes, byteCount: 4),
+                _ => null,
+            } ?? raw;
         }
         return raw;
     }
@@ -130,24 +137,28 @@ public static class RegTypeFormatter
         return sb.ToString();
     }
 
-    private static string? DecodeMultiSz(ReadOnlySpan<char> hexBytes, bool ansi)
+    private static string? DecodeMultiSz(byte[] bytes, bool ansi)
     {
-        var text = DecodeText(hexBytes, ansi);
+        var text = DecodeText(bytes, ansi);
         if (text is null) return null;
-        var lines = text.Split('\0', StringSplitOptions.RemoveEmptyEntries);
-        return string.Join('\n', lines);
+        // Each string ends with a NUL, the list with one more: an empty string in the middle stays.
+        return string.Join('\n', text.TrimEnd('\0').Split('\0'));
     }
 
-    private static string? DecodeExpandSz(ReadOnlySpan<char> hexBytes, bool ansi) => DecodeText(hexBytes, ansi)?.TrimEnd('\0');
+    /// <summary>The text up to its first NUL, as Registry Editor shows it.</summary>
+    private static string? DecodeExpandSz(byte[] bytes, bool ansi)
+    {
+        var text = DecodeText(bytes, ansi);
+        if (text is null) return null;
+        var nul = text.IndexOf('\0');
+        return nul < 0 ? text : text[..nul];
+    }
 
     /// <summary>
-    /// The text held by a hex list: ANSI bytes, or UTF-16LE ones. Null when the list cannot be read,
-    /// or holds an odd number of bytes for UTF-16 (not text, then).
+    /// The text held by bytes: ANSI, or UTF-16LE. Null for an odd number of bytes in UTF-16 (not text, then).
     /// </summary>
-    private static string? DecodeText(ReadOnlySpan<char> hexBytes, bool ansi)
+    private static string? DecodeText(byte[] bytes, bool ansi)
     {
-        var bytes = ParseHexBytes(hexBytes);
-        if (bytes is null) return null;
         if (ansi) return AnsiEncoding.Current.GetString(bytes);
         if (bytes.Length % 2 != 0) return null;
         return Encoding.Unicode.GetString(bytes);
@@ -158,41 +169,12 @@ public static class RegTypeFormatter
     /// serializations) into the same <c>0xHHHH (decimal)</c> display used for dword/qword values.
     /// Returns null when the byte count does not match the expected width.
     /// </summary>
-    private static string? DecodeLittleEndianNumber(ReadOnlySpan<char> hexBytes, int byteCount)
+    private static string? DecodeLittleEndianNumber(byte[] bytes, int byteCount)
     {
-        var bytes = ParseHexBytes(hexBytes);
-        if (bytes is null || bytes.Length != byteCount) return null;
+        if (bytes.Length != byteCount) return null;
         var value = 0UL;
         for (var i = bytes.Length - 1; i >= 0; i--) value = (value << 8) | bytes[i];
         var hex = value.ToString(byteCount == 8 ? "x16" : "x8", CultureInfo.InvariantCulture);
         return $"0x{hex} ({value})";
-    }
-
-    /// <summary>
-    /// Parse a comma-separated list of hex bytes (e.g. <c>"41,00,42,00"</c>) into a byte array.
-    /// Returns null if any token is not a valid two-digit hex number.
-    /// </summary>
-    private static byte[]? ParseHexBytes(ReadOnlySpan<char> hexBytes)
-    {
-        // Quick whitespace strip via a small builder. The .reg format uses commas as separators
-        // and may contain spaces (after line-continuation joins by the parser).
-        var clean = new StringBuilder(hexBytes.Length);
-        foreach (var c in hexBytes)
-        {
-            if (c is ' ' or '\t' or '\r' or '\n') continue;
-            clean.Append(c);
-        }
-        if (clean.Length == 0) return [];
-
-        var parts = clean.ToString().Split(',');
-        var bytes = new byte[parts.Length];
-        for (var i = 0; i < parts.Length; i++)
-        {
-            if (!byte.TryParse(parts[i], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out bytes[i]))
-            {
-                return null;
-            }
-        }
-        return bytes;
     }
 }

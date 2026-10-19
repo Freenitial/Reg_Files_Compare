@@ -146,7 +146,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             ],
         });
 
-        AddFiles(picked.Select(static item => item.TryGetLocalPath()).OfType<string>().Where(static p => p.Length > 0));
+        var paths = picked.Select(static item => item.TryGetLocalPath()).OfType<string>().Where(static p => p.Length > 0).ToList();
+        if (paths.Count > 0)
+        {
+            await QueueLoadAsync(() =>
+            {
+                StatusText = $"{LoadingText}…";
+                return AddFilesAsync(paths);
+            });
+        }
     }
 
     /// <summary>
@@ -159,6 +167,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         _isUpdatingList = true;
         try
         {
+            // A message about the removed file (no key, already added) is not told any more.
+            _loadProblems.RemoveAll(p => p.EndsWith(": " + file.File.Path, StringComparison.OrdinalIgnoreCase));
             LoadedFiles.Remove(file);
             ResetReferenceIfNeeded();
             UpdateDisplayNames();
@@ -198,7 +208,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var checkedFiles = LoadedFiles.Where(static f => f.IsChecked).ToList();
         if (checkedFiles.Count < 2)
         {
-            ClearFileColumns();
+            if (Columns.OfType<FileColumnViewModel>().Any()) ClearFileColumns();
+            else if (LoadedFiles.Count > 0) StatusText = WithLoadProblems("Tick at least two files to compare them");
+            else
+            {
+                // Every file removed (during a comparison): the count of an earlier one does not stay.
+                StatusText = WithLoadProblems("Compared files = 0");
+                _loadProblems.Clear();
+            }
             return;
         }
 
@@ -225,6 +242,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
             var years = regs.Select(static f => f.Modified.Year).Distinct().Count();
             var showYear = years > 1;
+            // Two compared files of the same name: their titles add their folder.
+            var titles = FileNames.Distinct(regs.Select(static f => f.Path).ToList());
 
             // The file columns are replaced in place, before the search columns, which stay as they
             // are (one opened or closed while the columns are built included).
@@ -234,7 +253,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             }
             for (var i = 0; i < regs.Count; i++)
             {
-                var col = new FileColumnViewModel(this, diff, i, isReference: i == refIndex, showYearInDate: showYear);
+                // A file removed while the columns are built gets no column (the replay follows).
+                if (!LoadedFiles.Any(f => ReferenceEquals(f.File, regs[i]))) continue;
+                var col = new FileColumnViewModel(this, diff, i, isReference: i == refIndex, showYearInDate: showYear, titles[i]);
                 Columns.Insert(FileColumnsEnd(), col);
                 ComparisonProgress = 0.25 + 0.70 * (i + 1) / regs.Count;
                 await LetUiRenderAsync();
@@ -248,9 +269,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 col.ApplyExternalValueSelection();
             }
 
-            // A replay to come shows the load problems again, beside its own count.
+            // A replay to come, or the comparison of files still loading, shows the load problems
+            // again, beside its own count.
             StatusText = WithLoadProblems($"Compared files = {checkedFiles.Count}");
-            if (!_comparePending) _loadProblems.Clear();
+            if (!_comparePending && !IsLoading) _loadProblems.Clear();
 
             ComparisonProgress = 1.0;
             await Task.Delay(150);
@@ -296,8 +318,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
         StatusText = WithLoadProblems("Compared files = 0");
         _loadProblems.Clear();
-        SelectedKeyPath = null;
-        SelectedValueName = null;
+        // The selected key and value stay: ticking a second file back selects them again.
     }
 
     /// <summary>
@@ -316,28 +337,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private void ExpandAll()
     {
-        foreach (var col in Columns.OfType<FileColumnViewModel>())
-        {
-            foreach (var root in col.Roots)
-            {
-                root.IsExpanded = true;
-                foreach (var d in root.EnumerateDescendants()) d.IsExpanded = true;
-            }
-        }
+        foreach (var col in Columns.OfType<FileColumnViewModel>()) col.ExpandAll();
     }
 
     /// <summary>Collapse every node in every column tree.</summary>
     [RelayCommand]
     private void CollapseAll()
     {
-        foreach (var col in Columns.OfType<FileColumnViewModel>())
-        {
-            foreach (var root in col.Roots)
-            {
-                root.IsExpanded = false;
-                foreach (var d in root.EnumerateDescendants()) d.IsExpanded = false;
-            }
-        }
+        foreach (var col in Columns.OfType<FileColumnViewModel>()) col.CollapseAll();
     }
 
     /// <summary>Append a new search column for the term in <see cref="SearchTerm"/>.</summary>
@@ -357,13 +364,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Add a single .reg file (checked), as a batch of one (see <see cref="AddFiles"/>). True when it
-    /// was added.
+    /// Add a single .reg file (checked), as a batch of one (see <see cref="AddFilesAsync"/>). True when
+    /// it was added.
     /// </summary>
-    public bool AddRegFile(string path)
+    public async Task<bool> AddRegFileAsync(string path)
     {
         var before = LoadedFiles.Count;
-        AddFiles([path]);
+        await QueueLoadAsync(() => AddFilesAsync([path]));
         return LoadedFiles.Count > before;
     }
 
@@ -372,9 +379,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// any key is added with a word in the status bar, which lists every problem met. When the display
     /// follows the file list, the comparison is then made again once, with the new files.
     /// </summary>
-    private void AddFiles(IEnumerable<string> paths, IEnumerable<string>? unreadable = null)
+    private async Task AddFilesAsync(IEnumerable<string> paths, IEnumerable<string>? unreadable = null)
     {
-        _loadProblems.Clear();
+        // Problems a running comparison is still to show beside its count stay.
+        if (!IsComparing) _loadProblems.Clear();
         if (unreadable is not null)
         {
             foreach (var path in unreadable) _loadProblems.Add($"Could not read: {path}");
@@ -383,26 +391,41 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var added = 0;
         foreach (var path in paths)
         {
-            if (Load(path)) added++;
+            if (await LoadAsync(path)) added++;
         }
 
+        var comparing = added > 0 && _following;
         if (_loadProblems.Count > 0) StatusText = WithLoadProblems(null);
-        if (added > 0 && _following) _ = Compare();
+        // "Loading…" goes, unless a comparison follows and says what it found.
+        else if (!comparing && StatusText.StartsWith(LoadingText, StringComparison.Ordinal)) StatusText = "";
+        if (comparing) _ = Compare();
+        // Nothing added: the problems were told now, not beside the count of a later comparison (but
+        // beside that of a running one).
+        else if (added == 0 && !IsComparing) _loadProblems.Clear();
     }
 
-    /// <summary>Parse one file and add it to the list; a problem goes to <see cref="_loadProblems"/>.</summary>
-    private bool Load(string path)
+    /// <summary>
+    /// Parse one file (on a worker thread: a large export takes a while) and add it to the list; a
+    /// problem goes to <see cref="_loadProblems"/>.
+    /// </summary>
+    private async Task<bool> LoadAsync(string path)
     {
         try
         {
             var fullPath = Path.GetFullPath(path);
-            if (LoadedFiles.Any(f => string.Equals(f.File.Path, fullPath, StringComparison.OrdinalIgnoreCase)))
+            if (IsLoaded(fullPath))
             {
                 _loadProblems.Add($"Ignored (already added): {fullPath}");
                 return false;
             }
 
-            var parsed = _parser.Parse(fullPath);
+            var parsed = await Task.Run(() => _parser.Parse(fullPath));
+            // The same file given twice in one batch: the second one is refused here.
+            if (IsLoaded(fullPath))
+            {
+                _loadProblems.Add($"Ignored (already added): {fullPath}");
+                return false;
+            }
             if (parsed.Data.Count == 0) _loadProblems.Add($"No registry key in: {fullPath}");
 
             LoadedFiles.Add(new LoadedFileViewModel(parsed)
@@ -422,6 +445,45 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    private bool IsLoaded(string fullPath)
+        => LoadedFiles.Any(f => string.Equals(f.File.Path, fullPath, StringComparison.OrdinalIgnoreCase));
+
+    private const string LoadingText = "Loading";
+
+    /// <summary>The loads in progress, one after the other (a drop made during a load waits for it).</summary>
+    private Task _loading = Task.CompletedTask;
+
+    /// <summary>True while files are being listed or read.</summary>
+    [ObservableProperty]
+    private bool _isLoading;
+
+    /// <summary>Loads queued and not finished yet.</summary>
+    private int _loadsPending;
+
+    /// <summary>Run <paramref name="load"/> after the loads already queued.</summary>
+    private Task QueueLoadAsync(Func<Task> load)
+    {
+        _loadsPending++;
+        IsLoading = true;
+        var previous = _loading;
+        _loading = RunAfterAsync(previous, load);
+        return _loading;
+    }
+
+    private async Task RunAfterAsync(Task previous, Func<Task> load)
+    {
+        try
+        {
+            try { await previous; }
+            catch (Exception ex) { _logger.LogError(ex, "A load failed"); }
+            await load();
+        }
+        finally
+        {
+            IsLoading = --_loadsPending > 0;
+        }
+    }
+
     /// <summary>
     /// <paramref name="text"/> followed by the load problems still to tell (the first ones, when
     /// there are many), or the problems alone when <paramref name="text"/> is null.
@@ -436,36 +498,47 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// Resolve a list of dropped paths and load each .reg file found (folders are searched at every
-    /// depth). Nothing found, and paths that could not be read, are told in the status bar.
+    /// depth), off the UI thread: the drop returns at once. Nothing found, and paths that could not be
+    /// read, are told in the status bar.
     /// </summary>
-    public void HandleDroppedPaths(IEnumerable<string> paths)
+    public Task HandleDroppedPathsAsync(IEnumerable<string> paths)
     {
-        try
+        var given = paths.ToList();
+        return QueueLoadAsync(async () =>
         {
+            StatusText = $"{LoadingText}…";
             var unreadable = new List<string>();
-            var files = _dragDrop.ResolveDroppedPaths(paths, unreadable);
+            List<string> files;
+            try
+            {
+                files = await Task.Run(() => _dragDrop.ResolveDroppedPaths(given, unreadable));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to resolve the dropped paths");
+                StatusText = $"The files could not be listed: {ex.Message}";
+                if (!IsComparing) _loadProblems.Clear();
+                return;
+            }
             if (files.Count == 0 && unreadable.Count == 0)
             {
                 StatusText = "No .reg file found in what was given";
+                // Problems kept for a comparison that has ended meanwhile are not told later.
+                if (!IsComparing) _loadProblems.Clear();
                 return;
             }
-            AddFiles(files, unreadable);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to resolve the dropped paths");
-            StatusText = $"The files could not be listed: {ex.Message}";
-        }
+            await AddFilesAsync(files, unreadable);
+        });
     }
 
     /// <summary>
     /// Load the files and folders given on the command line (resolved like a drop), then compare them
-    /// when there are at least two.
+    /// when there are at least two. The window shows meanwhile.
     /// </summary>
-    public void OpenAtStart(IEnumerable<string> paths)
+    public async Task OpenAtStartAsync(IEnumerable<string> paths)
     {
-        HandleDroppedPaths(paths);
-        if (LoadedFiles.Count(static f => f.IsChecked) >= 2) _ = Compare();
+        await HandleDroppedPathsAsync(paths);
+        if (LoadedFiles.Count(static f => f.IsChecked) >= 2) await Compare();
     }
 
     /// <summary>Remove a column. For file columns this also removes the file; for search columns it just drops the column.</summary>
@@ -516,9 +589,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         var folders = LoadedFiles.Select(f => Path.GetDirectoryName(f.File.Path) ?? "").Distinct(StringComparer.OrdinalIgnoreCase).Count();
         var fullPaths = folders > 1 && LoadedFiles.Count > 1;
-        foreach (var f in LoadedFiles)
+        var shortNames = FileNames.Distinct(LoadedFiles.Select(static f => f.File.Path).ToList());
+        for (var i = 0; i < LoadedFiles.Count; i++)
         {
+            var f = LoadedFiles[i];
             f.DisplayName = fullPaths ? f.File.Path : f.File.FileName;
+            f.ShortName = shortNames[i];
         }
     }
 

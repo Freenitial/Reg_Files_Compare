@@ -29,7 +29,7 @@ cd Reg_Files_Compare
 dotnet build
 
 # Run (optionally with .reg files or folders to load and compare at once)
-dotnet run --project RegCompare.csproj
+dotnet run --project RegCompare.csproj -- a.reg b.reg
 
 # Run the test suite
 dotnet test
@@ -47,9 +47,10 @@ Output:
 bin\Release\net11.0-windows10.0.17763.0\win-x64\publish\Reg_Files_Compare.exe
 ```
 
-A standalone, single-file application (~26 MB) that needs no .NET runtime on the target machine. The
-.NET SDK finds the MSVC linker by itself (through `vswhere.exe`), so any terminal works; a Developer
-PowerShell is not needed.
+A standalone, single-file application (~28 MB) that needs no .NET runtime on the target machine. The
+.NET SDK finds the MSVC linker by itself (through `vswhere.exe`), so a plain terminal works; a Developer
+PowerShell is not needed — and better avoided: with a user profile path that has accents, it garbles the
+path and dotnet fails.
 
 > The published file is `Reg_Files_Compare.exe` — upload it as the GitHub release asset under that exact
 > name (the README's download link points to it).
@@ -66,16 +67,19 @@ prevents it, and `build.cmd` checks the result. To check a published exe by hand
 ```powershell
 $exe  = (Resolve-Path 'bin\Release\net11.0-windows10.0.17763.0\win-x64\publish\Reg_Files_Compare.exe').Path
 $text = [Text.Encoding]::GetEncoding(28591).GetString([IO.File]::ReadAllBytes($exe))
-'CompiledAvaloniaXaml', 'XamlIlPopulate' | ForEach-Object { '{0}: {1}' -f $_, $text.Contains($_) }
+$address = [Text.Encoding]::GetEncoding(28591).GetString([Text.Encoding]::Unicode.GetBytes('avares://Reg_Files_Compare/App.axaml'))
+'App.axaml: {0}' -f $text.Contains($address.Substring(0, $address.Length - 1))
+'XamlIlPopulate: {0}' -f $text.Contains('XamlIlPopulate')
 ```
 
 Then start the exe: the window must open and stay open.
 
 ### Troubleshooting
 
-- `vswhere.exe not found` or `vswhere.exe failed to locate Visual Studio with
-  Microsoft.VisualStudio.Component.VC.Tools.x86.x64`: the **Desktop development with C++** workload is
-  missing. Install it with the Visual Studio Installer.
+- `vswhere.exe not found`: no Visual Studio (nor its Build Tools) is installed. Install the Visual Studio
+  Build Tools with the **Desktop development with C++** workload.
+- `vswhere.exe failed to locate Visual Studio with Microsoft.VisualStudio.Component.VC.Tools.x86.x64`: the
+  **Desktop development with C++** workload is missing. Add it with the Visual Studio Installer.
 - A transient `MSB3061` "access denied" on the output `.exe` is usually an antivirus briefly locking the
   freshly written file: run the publish again.
 
@@ -92,8 +96,8 @@ token. From a terminal in the repository folder, with the token plugged in:
 .\sign.cmd
 ```
 
-`build.cmd` stops at the first failure (a failing test, a failed publish, a library left beside the
-exe, an exe without its compiled XAML) and then leaves no `Reg_Files_Compare.exe` in `build\`: the exe
+`build.cmd` stops at the first failure (dotnet missing, the previous exe still open, a failing test, a
+failed publish, a library left beside the exe, an exe without its compiled XAML) and then leaves no `Reg_Files_Compare.exe` in `build\`: the exe
 is put there only once everything passed.
 
 `sign.cmd`:
@@ -104,7 +108,7 @@ is put there only once everything passed.
 2. signs with `signtool sign /sha1 <thumbprint> /fd sha256`, with the description "REG Files Compare"
    and the GitHub page;
 3. timestamps separately (`signtool timestamp /tr http://ts.harica.gr /td sha256`): this step needs no
-   key, so it is retried up to four times without asking for the PIN again;
+   key, so it is tried up to four times in all, without asking for the PIN again;
 4. verifies the signature and its timestamp (`signtool verify /pa /tw`) and checks that the file
    carries the chosen certificate (it removes the signature otherwise).
 
@@ -142,4 +146,4 @@ Tests/                     xUnit tests (the main window is driven without a scre
   producing a single `.exe`.
 - The documentation (`docs/help.html`, English and French) is a self-contained page embedded in the exe
   (`EmbeddedResource`); the Help button writes it to `%TEMP%\Reg_Files_Compare\` and opens it in the
-  default browser. Its technical reference describes every mechanism of the application.
+  default browser. Its technical reference describes how the application works.

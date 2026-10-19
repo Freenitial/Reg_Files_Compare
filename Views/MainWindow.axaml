@@ -20,7 +20,7 @@
     <!-- FontFeatures: Inter's contextual alternates draw the "x" of "0x0000000a" between digits as a
          multiplication sign; registry data must read exactly as written. -->
 
-    <Grid RowDefinitions="55,30,22,*,22">
+    <Grid RowDefinitions="62,30,24,*,22">
 
         <!-- 1. Loaded files list -->
         <Border Grid.Row="0"
@@ -51,6 +51,7 @@
                                         ToolTip.Tip="Remove this file"
                                         Command="{Binding RemoveCommand}" />
                                 <TextBlock Text="{Binding DisplayName}"
+                                           ToolTip.Tip="{Binding File.Path}"
                                            VerticalAlignment="Center"
                                            Margin="2,0,0,0" />
                             </StackPanel>
@@ -63,7 +64,7 @@
 
         <!-- 2. Toolbar -->
         <Border Grid.Row="1" Background="{DynamicResource RegSecondaryPanel}">
-            <DockPanel Margin="5,4" LastChildFill="False">
+            <DockPanel Margin="5,4" LastChildFill="True">
                 <Button DockPanel.Dock="Left"
                         Content="Browse .reg Files"
                         Click="OnBrowseClick"
@@ -73,17 +74,6 @@
                            Text="Reference:"
                            VerticalAlignment="Center"
                            Margin="15,0,4,0" />
-                <ComboBox DockPanel.Dock="Left"
-                          ItemsSource="{Binding LoadedFiles}"
-                          SelectedItem="{Binding ReferenceFile}"
-                          Width="170"
-                          Margin="0,0,15,0">
-                    <ComboBox.ItemTemplate>
-                        <DataTemplate DataType="vm:LoadedFileViewModel">
-                            <TextBlock Text="{Binding DisplayName}" />
-                        </DataTemplate>
-                    </ComboBox.ItemTemplate>
-                </ComboBox>
 
                 <!-- Right-side controls (added first = rightmost) -->
                 <Button DockPanel.Dock="Right"
@@ -91,20 +81,10 @@
                         Command="{Binding CompareCommand}"
                         FontWeight="Bold"
                         Width="100" />
-                <Button DockPanel.Dock="Right"
-                        Content="Collapse All"
-                        Command="{Binding CollapseAllCommand}"
-                        Width="90"
-                        Margin="0,0,4,0" />
-                <Button DockPanel.Dock="Right"
-                        Content="Expand All"
-                        Command="{Binding ExpandAllCommand}"
-                        Width="80"
-                        Margin="0" />
                 <CheckBox DockPanel.Dock="Right"
                           Content="Dark Theme"
                           IsChecked="{Binding Theme.IsDark}"
-                          Margin="0,0,10,0" />
+                          Margin="0,0,14,0" />
                 <CheckBox DockPanel.Dock="Right"
                           Content="Show only changes"
                           IsChecked="{Binding ShowOnlyChanges}"
@@ -113,12 +93,26 @@
                           Content="Hide empty added nodes"
                           IsChecked="{Binding HideEmptyAddedNodes}"
                           Margin="0,0,10,0" />
+                <!-- Last: it takes the room the other controls leave (the toolbar fits at the minimum width). -->
+                <ComboBox MinWidth="120"
+                          ItemsSource="{Binding LoadedFiles}"
+                          SelectedItem="{Binding ReferenceFile}"
+                          ToolTip.Tip="{Binding ReferenceFile.File.Path, FallbackValue={x:Null}}"
+                          Margin="0,0,15,0">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate DataType="vm:LoadedFileViewModel">
+                            <TextBlock Text="{Binding ShortName}"
+                                       ToolTip.Tip="{Binding File.Path}"
+                                       TextTrimming="CharacterEllipsis" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
             </DockPanel>
         </Border>
 
-        <!-- 3. Search box + Help (under Compare: the toolbar has no room left at the minimum width) -->
+        <!-- 3. Search box, Expand / Collapse All and Help (the toolbar has no room left for them at the minimum width) -->
         <Border Grid.Row="2" Background="{DynamicResource RegSecondaryPanel}">
-            <Grid Margin="5,1" ColumnDefinitions="Auto,10,*,4,Auto">
+            <Grid Margin="5,1" ColumnDefinitions="Auto,10,*,4,Auto,4,Auto,4,Auto">
                 <TextBlock Grid.Column="0"
                            Text="Search (press Enter):"
                            VerticalAlignment="Center" />
@@ -126,6 +120,14 @@
                          Text="{Binding SearchTerm}"
                          KeyDown="OnSearchKeyDown" />
                 <Button Grid.Column="4"
+                        Content="Expand All"
+                        Command="{Binding ExpandAllCommand}"
+                        Width="90" />
+                <Button Grid.Column="6"
+                        Content="Collapse All"
+                        Command="{Binding CollapseAllCommand}"
+                        Width="90" />
+                <Button Grid.Column="8"
                         Content="Help"
                         Width="100"
                         Padding="0"
@@ -138,7 +140,8 @@
 
         <!-- 4. Columns area + drop overlay -->
         <Grid Grid.Row="3" Background="{DynamicResource RegRootBackground}">
-            <ScrollViewer HorizontalScrollBarVisibility="Auto"
+            <ScrollViewer x:Name="ColumnsScroller"
+                          HorizontalScrollBarVisibility="Auto"
                           VerticalScrollBarVisibility="Disabled">
                 <ItemsControl ItemsSource="{Binding Columns}">
                     <ItemsControl.ItemsPanel>

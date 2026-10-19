@@ -23,6 +23,10 @@ public class HelpLauncherTests
             Assert.Contains("data-l=\"fr\"", html);
             Assert.DoesNotContain("src=\"http", html);
             Assert.DoesNotContain("@LOGO@", html);
+            // The page shows the version that wrote it.
+            Assert.Matches(@"^\d+\.\d+\.\d+$", HelpLauncher.Version);
+            Assert.DoesNotContain("{{VERSION}}", html);
+            Assert.Contains("v" + HelpLauncher.Version, html);
         }
         finally
         {

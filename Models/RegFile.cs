@@ -36,6 +36,14 @@ public sealed class RegFile
     /// </summary>
     public bool IsRegedit4 { get; init; }
 
+    /// <summary>
+    /// More of the file's lines end with \n alone than with \r\n (its line endings were converted, by git or
+    /// an editor; the line breaks inside strings are data, not counted). reg.exe
+    /// writes each line break of a string's data as \r\n: in such a file the conversion gave the data
+    /// back as it is, where a file ending its lines with \r\n holds each \n of the data as \r\n.
+    /// </summary>
+    public bool LfLines { get; init; }
+
     /// <summary>Human-friendly file size (B / KB / MB).</summary>
     public string DisplaySize
     {

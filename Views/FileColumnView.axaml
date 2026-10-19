@@ -60,40 +60,56 @@
 
                 <!-- Tree + status bar -->
                 <Grid Grid.Row="2" RowDefinitions="*,20">
-                    <TreeView Grid.Row="0"
-                              x:Name="KeysTree"
-                              ItemsSource="{Binding Roots}"
-                              SelectedItem="{Binding SelectedNode, Mode=TwoWay}">
-                        <TreeView.ContextMenu>
+                    <!-- The key tree as a flat, virtualized list (only the rows on screen exist), see
+                         TreeRows. Selection, arrows and double-click: TreeListSelection. -->
+                    <ListBox Grid.Row="0"
+                             x:Name="KeysTree"
+                             Classes="tree"
+                             ItemsSource="{Binding Rows}"
+                             SelectionMode="Single">
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <!-- As wide as the widest row, not the widest on screen: see TreeRows.Widest. -->
+                                <VirtualizingStackPanel MinWidth="{Binding Rows.Widest}" />
+                            </ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                        <ListBox.ContextMenu>
                             <ContextMenu>
-                                <MenuItem Header="Copy Row" Click="OnTreeCopyRowClick" />
+                                <!-- Enabled for a selected row that shows (not one a collapsed parent hides). -->
+                                <MenuItem Header="Copy Row" Click="OnTreeCopyRowClick"
+                                          IsEnabled="{Binding #KeysTree.SelectedItem, Converter={x:Static ObjectConverters.IsNotNull}}" />
                                 <MenuItem Header="Copy Row + Children"
                                           Click="OnTreeCopyRowWithChildrenClick"
-                                          IsEnabled="{Binding SelectedNode.HasChildren, FallbackValue=False}" />
+                                          IsEnabled="{Binding #KeysTree.((vm:KeyNodeViewModel)SelectedItem).HasChildren, FallbackValue=False}" />
                                 <Separator />
-                                <MenuItem Header="Export..." Click="OnTreeExportClick" />
+                                <MenuItem Header="Export..." Click="OnTreeExportClick"
+                                          IsEnabled="{Binding #KeysTree.SelectedItem, Converter={x:Static ObjectConverters.IsNotNull}}" />
                             </ContextMenu>
-                        </TreeView.ContextMenu>
-                        <TreeView.Styles>
-                            <Style Selector="TreeViewItem" x:DataType="vm:KeyNodeViewModel">
-                                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
-                            </Style>
-                        </TreeView.Styles>
-                        <TreeView.ItemTemplate>
-                            <TreeDataTemplate ItemsSource="{Binding Children}" DataType="vm:KeyNodeViewModel">
-                                <TextBlock Text="{Binding Name}"
-                                           Foreground="{Binding Status, Converter={StaticResource StatusToBrush}}"
-                                           FontWeight="{Binding IsChange, Converter={StaticResource BoolToFontWeight}}"
-                                           TextDecorations="{Binding IsMissing, Converter={StaticResource BoolToStrikethrough}}" />
-                            </TreeDataTemplate>
-                        </TreeView.ItemTemplate>
-                    </TreeView>
+                        </ListBox.ContextMenu>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="vm:KeyNodeViewModel">
+                                <StackPanel Orientation="Horizontal" Margin="{Binding Indent}">
+                                    <Panel Width="18">
+                                        <ToggleButton Classes="expander"
+                                                      IsVisible="{Binding HasChildren}"
+                                                      IsChecked="{Binding IsExpanded, Mode=TwoWay}" />
+                                    </Panel>
+                                    <TextBlock Text="{Binding Name}"
+                                               VerticalAlignment="Center"
+                                               Foreground="{Binding Status, Converter={StaticResource StatusToBrush}}"
+                                               FontWeight="{Binding IsChange, Converter={StaticResource BoolToFontWeight}}"
+                                               TextDecorations="{Binding IsMissing, Converter={StaticResource BoolToStrikethrough}}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
 
                     <Border Grid.Row="1"
                             Background="{DynamicResource RegColumnHeader}"
                             BorderBrush="{DynamicResource RegBorder}"
                             BorderThickness="0,1,0,0">
                         <TextBlock Text="{Binding StatusText}"
+                                   ToolTip.Tip="{Binding StatusText}"
                                    FontSize="11"
                                    VerticalAlignment="Center"
                                    Padding="6,0"
@@ -114,11 +130,13 @@
                         Background="{DynamicResource RegRootBackground}">
                     <Grid RowDefinitions="22,*">
                         <!-- Header row with resize Thumbs between columns -->
+                        <!-- Moved sideways with the rows (ValuesHeaderFollowsRows), clipped to the column. -->
                         <Border Grid.Row="0"
                                 Background="{DynamicResource RegSecondaryPanel}"
                                 BorderBrush="{DynamicResource RegBorder}"
-                                BorderThickness="0,0,0,1">
-                            <Grid>
+                                BorderThickness="0,0,0,1"
+                                ClipToBounds="True">
+                            <Grid x:Name="ValuesHeader">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="{Binding Main.ValuesNameColumnWidth, Mode=TwoWay}" />
                                     <ColumnDefinition Width="4" />
@@ -193,16 +211,18 @@
                                             <ColumnDefinition Width="{Binding DataContext.DataColumnWidth, ElementName=Self}" />
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" Text="{Binding DisplayName}"
+                                                   ToolTip.Tip="{Binding DisplayName}"
                                                    Padding="5,0" VerticalAlignment="Center"
                                                    TextTrimming="CharacterEllipsis"
                                                    Foreground="{Binding Status, Converter={StaticResource StatusToBrush}}"
                                                    FontWeight="{Binding IsChange, Converter={StaticResource BoolToFontWeight}}" />
                                         <TextBlock Grid.Column="2" Text="{Binding Type}"
+                                                   ToolTip.Tip="{Binding Type}"
                                                    Padding="5,0" VerticalAlignment="Center"
                                                    TextTrimming="CharacterEllipsis"
                                                    Foreground="{Binding Status, Converter={StaticResource StatusToBrush}}"
                                                    FontWeight="{Binding IsChange, Converter={StaticResource BoolToFontWeight}}" />
-                                        <TextBlock Grid.Column="4" Text="{Binding DisplayValue}"
+                                        <TextBlock Grid.Column="4" Text="{Binding ShownValue}"
                                                    Padding="5,0" VerticalAlignment="Center"
                                                    TextWrapping="NoWrap"
                                                    Foreground="{Binding Status, Converter={StaticResource StatusToBrush}}"

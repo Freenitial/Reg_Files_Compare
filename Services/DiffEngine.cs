@@ -164,10 +164,9 @@ public sealed class DiffEngine
         if (existsHere && !existsRef) return DiffStatus.Added;
         if (!existsHere && !existsRef) return DiffStatus.Hidden;
 
-        // Both sides exist: compare raw strings.
-        var hereVal = hereVals![valueName];
-        var refVal = refVals![valueName];
-        return string.Equals(hereVal, refVal, StringComparison.Ordinal)
+        // Both sides exist: compare the data, however each file writes it (RegData).
+        return RegData.Same(hereVals![valueName], Files[fileIndex].IsRegedit4, refVals![valueName], Files[ReferenceIndex].IsRegedit4,
+                Files[fileIndex].LfLines, Files[ReferenceIndex].LfLines)
             ? DiffStatus.Identical
             : DiffStatus.Different;
     }
@@ -188,7 +187,9 @@ public sealed class DiffEngine
             var data = Files[i].Data;
             var existsHere = data.TryGetValue(key, out var hereVals) && hereVals.ContainsKey(valueName);
             if (existsHere != refExists) return true;
-            if (existsHere && refExists && !string.Equals(hereVals![valueName], refValue, StringComparison.Ordinal))
+            if (existsHere && refExists
+                && !RegData.Same(hereVals![valueName], Files[i].IsRegedit4, refValue!, Files[ReferenceIndex].IsRegedit4,
+                    Files[i].LfLines, Files[ReferenceIndex].LfLines))
                 return true;
         }
         return false;

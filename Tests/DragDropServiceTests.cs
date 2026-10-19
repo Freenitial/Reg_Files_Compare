@@ -98,4 +98,53 @@ public class DragDropServiceTests
             Directory.Delete(dir, recursive: true);
         }
     }
+
+    // A junction that points back to a parent folder is not followed: each file comes once, at once.
+    [Fact]
+    public void Resolve_JunctionLoop_GivesEachFileOnce()
+    {
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            var a = Path.Combine(dir, "a.reg");
+            File.WriteAllText(a, "Windows Registry Editor Version 5.00\r\n");
+            Directory.CreateDirectory(Path.Combine(dir, "sub"));
+            // Two loops: following them would list a.reg about 2^32 times.
+            foreach (var link in new[] { Path.Combine(dir, "sub", "up"), Path.Combine(dir, "back") })
+            {
+                using var mklink = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                    System.IO.Path.Combine(System.Environment.SystemDirectory, "cmd.exe"), $"/c mklink /J \"{link}\" \"{dir}\"")
+                { CreateNoWindow = true, UseShellExecute = false })!;
+                mklink.WaitForExit();
+                Assert.True(Directory.Exists(link), "the junction could not be made");
+            }
+
+            var found = new DragDropService().ResolveDroppedPaths([dir, a]);
+            Assert.Equal([a], found);
+        }
+        finally
+        {
+            // The junctions first: deleting them does not touch their target.
+            foreach (var link in new[] { Path.Combine(dir, "sub", "up"), Path.Combine(dir, "back") })
+                if (Directory.Exists(link)) Directory.Delete(link);
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    // A path given that does not exist is reported, the others still resolved.
+    [Fact]
+    public void Resolve_ReportsAMissingPath()
+    {
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            var a = Path.Combine(dir, "a.reg");
+            File.WriteAllText(a, "Windows Registry Editor Version 5.00\r\n");
+            var missing = Path.Combine(dir, "typo.reg");
+            var unreadable = new List<string>();
+            Assert.Equal([a], new DragDropService().ResolveDroppedPaths([a, missing], unreadable));
+            Assert.Equal([$"{missing} (not found)"], unreadable);
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
 }

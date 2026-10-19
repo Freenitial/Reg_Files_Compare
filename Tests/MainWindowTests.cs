@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -112,7 +113,12 @@ public sealed class MainWindowTests : IDisposable
         var vm = new MainWindowViewModel(new RegFileParser(), new DragDropService(), new ThemeService(), NullLogger<MainWindowViewModel>.Instance);
         var window = new MainWindow { DataContext = vm, Width = 1600, Height = 900 };
         window.Show();
-        foreach (var file in files) Assert.True(vm.AddRegFile(file));
+        foreach (var file in files)
+        {
+            var added = vm.AddRegFileAsync(file);
+            for (var i = 0; i < 1000 && !added.IsCompleted; i++) { Thread.Sleep(5); Pump(window); }
+            Assert.True(added.Result);
+        }
         Pump(window);
         return (vm, window);
     }
@@ -129,7 +135,7 @@ public sealed class MainWindowTests : IDisposable
     {
         for (var round = 0; round < 2; round++)
         {
-            for (var i = 0; i < 1000 && vm.IsComparing; i++) await Task.Delay(10);
+            for (var i = 0; i < 1000 && (vm.IsComparing || vm.IsLoading); i++) await Task.Delay(10);
             await Task.Delay(30);
             Pump(window);
         }
@@ -161,7 +167,11 @@ public sealed class MainWindowTests : IDisposable
     private static void Select(Window window, FileColumnViewModel column, string key, string? value)
     {
         var view = ViewOf(window, column);
-        view.FindControl<TreeView>("KeysTree")!.SelectedItem = Find(column.Roots, key);
+        // A click reaches a row its parents show: they are opened first, as the user would.
+        var node = Find(column.Roots, key)!;
+        for (var parent = node.Parent; parent is not null; parent = parent.Parent) parent.IsExpanded = true;
+        Pump(window);
+        view.FindControl<ListBox>("KeysTree")!.SelectedItem = node;
         Pump(window);
         if (value is null) return;
         view.FindControl<ListBox>("ValuesGrid")!.SelectedItem = column.ValueRows.Single(r => r.Name == value);
@@ -228,7 +238,7 @@ public sealed class MainWindowTests : IDisposable
         await Idle(vm, window);
         Assert.Equal(2, FileColumns(vm).Count);
 
-        vm.HandleDroppedPaths([_ws2]);
+        await vm.HandleDroppedPathsAsync([_ws2]);
         await Idle(vm, window);
         Assert.Equal(3, FileColumns(vm).Count);
         Assert.Equal("Compared files = 3", vm.StatusText);
@@ -410,7 +420,7 @@ public sealed class MainWindowTests : IDisposable
         await Compare(vm, window);
         Select(window, FileColumns(vm)[0], Browser, "HomepageLocation");
 
-        vm.HandleDroppedPaths([_ws2]);
+        await vm.HandleDroppedPathsAsync([_ws2]);
         await Idle(vm, window);
         Assert.Equal(3, FileColumns(vm).Count);
         Assert.Equal(Browser, vm.SelectedKeyPath);
@@ -445,7 +455,7 @@ public sealed class MainWindowTests : IDisposable
         await Compare(vm, window);
 
         var running = vm.CompareCommand.ExecuteAsync(null);
-        vm.HandleDroppedPaths([empty, _ws2]);
+        await vm.HandleDroppedPathsAsync([empty, _ws2]);
         await running;
         await Idle(vm, window);
         Assert.StartsWith("Compared files = 4", vm.StatusText, StringComparison.Ordinal);
@@ -461,11 +471,223 @@ public sealed class MainWindowTests : IDisposable
         var vm = new MainWindowViewModel(new RegFileParser(), new DragDropService(), new ThemeService(), NullLogger<MainWindowViewModel>.Instance);
         var window = new MainWindow { DataContext = vm, Width = 1600, Height = 900 };
         window.Show();
-        vm.OpenAtStart([_baseline, _ws1, empty]);
+        await vm.OpenAtStartAsync([_baseline, _ws1, empty]);
         await Idle(vm, window);
 
         Assert.StartsWith("Compared files = 3", vm.StatusText, StringComparison.Ordinal);
         Assert.Contains($"No registry key in: {empty}", vm.StatusText, StringComparison.Ordinal);
+        window.Close();
+    });
+
+    private static void Press(Window window, PhysicalKey key)
+    {
+        window.KeyPressQwerty(key, RawInputModifiers.None);
+        window.KeyReleaseQwerty(key, RawInputModifiers.None);
+        Pump(window);
+    }
+
+    // The arrow keys move in the key tree as in a tree: Right opens a key, then goes to its first child;
+    // Left goes to the parent, or closes an open key; Up / Down go on from the row reached.
+    [Fact]
+    public Task ArrowKeys_MoveInTheTree() => Run(async () =>
+    {
+        var (vm, window) = Open(_baseline, _ws1);
+        await Compare(vm, window);
+        vm.CollapseAllCommand.Execute(null);
+        Pump(window);
+        var column = FileColumns(vm)[0];
+        var list = ViewOf(window, column).FindControl<ListBox>("KeysTree")!;
+        var hive = column.Rows[0];
+        list.SelectedItem = hive;
+        Pump(window);
+        list.ContainerFromItem(hive)!.Focus(NavigationMethod.Directional);
+
+        Press(window, PhysicalKey.ArrowRight);
+        Assert.True(hive.IsExpanded);
+        Assert.Same(hive, column.SelectedNode);
+        Press(window, PhysicalKey.ArrowRight);
+        Assert.Equal(@"HKEY_LOCAL_MACHINE\SOFTWARE", column.SelectedNode!.Path);
+        Press(window, PhysicalKey.ArrowRight);
+        Press(window, PhysicalKey.ArrowDown);
+        Assert.Equal(Contoso, column.SelectedNode!.Path);
+        Assert.Same(column.SelectedNode, list.SelectedItem);
+        Press(window, PhysicalKey.ArrowLeft);
+        Assert.Equal(@"HKEY_LOCAL_MACHINE\SOFTWARE", column.SelectedNode!.Path);
+        Press(window, PhysicalKey.ArrowLeft);
+        Assert.False(column.SelectedNode!.IsExpanded);
+        Press(window, PhysicalKey.ArrowUp);
+        Assert.Same(hive, column.SelectedNode);
+        window.Close();
+    });
+
+    // A Ctrl+click on the selected key clears the list's selection while the columns keep the key: the
+    // list selects it again.
+    [Fact]
+    public Task DeselectingTheSelectedKey_SelectsItAgain() => Run(async () =>
+    {
+        var (vm, window) = Open(_baseline, _ws1);
+        await Compare(vm, window);
+        var column = FileColumns(vm)[0];
+        Select(window, column, Browser, null);
+        var list = ViewOf(window, column).FindControl<ListBox>("KeysTree")!;
+
+        list.SelectedItem = null;
+        Pump(window);
+        Assert.Equal(Browser, column.SelectedNode!.Path, ignoreCase: true);
+        Assert.Same(column.SelectedNode, list.SelectedItem);
+        window.Close();
+    });
+
+    // A key whose parent is collapsed keeps its selection in the column, hidden: the list selects no
+    // row (the tree menu then has nothing to act on).
+    [Fact]
+    public Task HiddenSelectedKey_SelectsNoRow() => Run(async () =>
+    {
+        var (vm, window) = Open(_baseline, _ws1);
+        await Compare(vm, window);
+        var column = FileColumns(vm)[0];
+        Select(window, column, Browser, null);
+        var list = ViewOf(window, column).FindControl<ListBox>("KeysTree")!;
+
+        column.SelectedNode!.Parent!.IsExpanded = false;
+        Pump(window);
+        Assert.Null(list.SelectedItem);
+        Assert.Equal(Browser, column.SelectedNode!.Path, ignoreCase: true);
+        window.Close();
+    });
+
+    // The key tree is as wide as its widest row, not as the widest on screen: its horizontal scrolling
+    // stays the same while it scrolls up and down.
+    [Fact]
+    public Task TreeWidth_StaysTheSame_WhileScrolling() => Run(async () =>
+    {
+        var deep = string.Join("\\", Enumerable.Range(0, 10).Select(static i => $"Key{i}")) + "\\" + new string('W', 80);
+        var keys = $"[HKEY_CURRENT_USER\\A\\{deep}]\n\"v\"=\"1\"\n"
+            + string.Concat(Enumerable.Range(0, 400).Select(static i => $"[HKEY_CURRENT_USER\\Z\\K{i:000}]\n\"v\"=\"1\"\n"));
+        var a = Write("wide-a.reg", keys);
+        var b = Write("wide-b.reg", keys.Replace("\"v\"=\"1\"", "\"v\"=\"2\"", StringComparison.Ordinal));
+        var (vm, window) = Open(a, b);
+        await Compare(vm, window);
+        vm.ExpandAllCommand.Execute(null);
+        Pump(window);
+        var column = FileColumns(vm)[0];
+        var list = ViewOf(window, column).FindControl<ListBox>("KeysTree")!;
+        var scroller = list.GetVisualDescendants().OfType<ScrollViewer>().First();
+
+        var width = scroller.Extent.Width;
+        Assert.True(width > scroller.Viewport.Width);
+        list.ScrollIntoView(column.Rows[^1]);
+        Pump(window);
+        Assert.Equal(width, scroller.Extent.Width);
+        window.Close();
+    });
+
+    // A file dropped before the first comparison, or a single file on the command line: "Loading…" does
+    // not stay in the status bar.
+    [Fact]
+    public Task LoadWithoutAComparison_LeavesNoLoadingText() => Run(async () =>
+    {
+        var (vm, window) = Open();
+        await vm.HandleDroppedPathsAsync([_baseline]);
+        await Idle(vm, window);
+        Assert.Single(vm.LoadedFiles);
+        Assert.DoesNotContain("Loading", vm.StatusText, StringComparison.Ordinal);
+        window.Close();
+
+        var (single, singleWindow) = Open();
+        await single.OpenAtStartAsync([_ws1]);
+        await Idle(single, singleWindow);
+        Assert.DoesNotContain("Loading", single.StatusText, StringComparison.Ordinal);
+        singleWindow.Close();
+    });
+
+    // In a values grid the arrow keys move one selected row (a click toggles rows), and the other
+    // columns follow it.
+    [Fact]
+    public Task ArrowKeys_InTheValuesGrid_MoveOneSelectedRow() => Run(async () =>
+    {
+        var (vm, window) = Open(_baseline, _ws1);
+        await Compare(vm, window);
+        var columns = FileColumns(vm);
+        Select(window, columns[0], Browser, "");
+        var grid = ViewOf(window, columns[0]).FindControl<ListBox>("ValuesGrid")!;
+        grid.ContainerFromItem(grid.SelectedItem!)!.Focus(NavigationMethod.Directional);
+
+        Press(window, PhysicalKey.ArrowDown);
+        Assert.Single(grid.SelectedItems!);
+        Assert.Equal("HomepageLocation", columns[0].SelectedValueRow!.Name);
+        Assert.Equal("HomepageLocation", columns[1].SelectedValueRow!.Name);
+        Press(window, PhysicalKey.ArrowDown);
+        Press(window, PhysicalKey.ArrowUp);
+        Assert.Single(grid.SelectedItems!);
+        Assert.Equal("HomepageLocation", columns[0].SelectedValueRow!.Name);
+        window.Close();
+    });
+
+    // With the selected key hidden under a closed branch, Left and Right first go to that branch.
+    [Fact]
+    public Task ArrowKeys_WithTheSelectedKeyHidden_GoToItsBranch() => Run(async () =>
+    {
+        var (vm, window) = Open(_baseline, _ws1);
+        await Compare(vm, window);
+        var column = FileColumns(vm)[0];
+        Select(window, column, Browser, null);
+        var list = ViewOf(window, column).FindControl<ListBox>("KeysTree")!;
+        var contoso = column.SelectedNode!.Parent!;
+        contoso.IsExpanded = false;
+        Pump(window);
+        list.ContainerFromItem(contoso)!.Focus(NavigationMethod.Directional);
+
+        Press(window, PhysicalKey.ArrowLeft);
+        Assert.Same(contoso, column.SelectedNode);
+        Assert.Same(contoso, list.SelectedItem);
+        Assert.False(contoso.IsExpanded);
+        window.Close();
+    });
+
+    // A file dropped again while a comparison runs: the message stays beside the comparison's count.
+    [Fact]
+    public Task LoadMessage_DuringAComparison_StaysBesideItsCount() => Run(async () =>
+    {
+        var (vm, window) = Open(_baseline, _ws1);
+        var running = vm.CompareCommand.ExecuteAsync(null);
+        await vm.HandleDroppedPathsAsync([_baseline]);
+        await running;
+        await Idle(vm, window);
+        Assert.StartsWith("Compared files = 2", vm.StatusText, StringComparison.Ordinal);
+        Assert.Contains("Ignored (already added)", vm.StatusText, StringComparison.Ordinal);
+        window.Close();
+    });
+
+    // Every file removed while a comparison runs: the count of an earlier comparison does not stay.
+    [Fact]
+    public Task RemovingEveryFileDuringAComparison_LeavesNoCount() => Run(async () =>
+    {
+        var (vm, window) = Open(_baseline, _ws1);
+        await Compare(vm, window);
+        var running = vm.CompareCommand.ExecuteAsync(null);
+        vm.RemoveLoadedFile(vm.LoadedFiles[1]);
+        vm.RemoveLoadedFile(vm.LoadedFiles[0]);
+        await running;
+        await Idle(vm, window);
+        Assert.Empty(vm.LoadedFiles);
+        Assert.DoesNotContain("Compared files = 2", vm.StatusText, StringComparison.Ordinal);
+        window.Close();
+    });
+
+    // A message about a file is not told any more once that file is removed.
+    [Fact]
+    public Task RemovedFile_TakesItsMessageAway() => Run(async () =>
+    {
+        var empty = Write("empty3.reg", "");
+        var (vm, window) = Open(_baseline, _ws1);
+        await vm.HandleDroppedPathsAsync([empty]);
+        await Idle(vm, window);
+        Assert.Contains("No registry key in", vm.StatusText, StringComparison.Ordinal);
+
+        vm.RemoveLoadedFile(vm.LoadedFiles.Single(f => f.File.Path == empty));
+        await Compare(vm, window);
+        Assert.Equal("Compared files = 2", vm.StatusText);
         window.Close();
     });
 }

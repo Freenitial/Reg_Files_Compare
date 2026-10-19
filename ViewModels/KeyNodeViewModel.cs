@@ -1,7 +1,8 @@
-// Single registry-key node inside a column's TreeView.
+// Single registry-key node of a column's key tree.
 
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using Avalonia;
 using CommunityToolkit.Mvvm.ComponentModel;
 using RegCompare.Models;
 
@@ -11,7 +12,7 @@ namespace RegCompare.ViewModels;
 /// Node inside a column's key tree. Holds the segment name (last path component) and the
 /// pre-computed diff status used by styling to color/bold/strike-through the row.
 /// </summary>
-public sealed partial class KeyNodeViewModel(string name, string path) : ObservableObject
+public sealed partial class KeyNodeViewModel(string name, string path) : ObservableObject, ITreeRow<KeyNodeViewModel>
 {
     /// <summary>Last segment of the registry path (the displayed text).</summary>
     public string Name { get; } = name;
@@ -22,8 +23,29 @@ public sealed partial class KeyNodeViewModel(string name, string path) : Observa
     /// <summary>Child sub-keys.</summary>
     public ObservableCollection<KeyNodeViewModel> Children { get; } = [];
 
+    IList<KeyNodeViewModel> ITreeRow<KeyNodeViewModel>.Children => Children;
+
     /// <summary>True when this node has at least one child sub-key.</summary>
     public bool HasChildren => Children.Count > 0;
+
+    /// <summary>Depth in the tree (0 for a hive): the row's indentation.</summary>
+    public int Depth
+    {
+        get;
+        set
+        {
+            if (field == value) return;
+            field = value;
+            OnPropertyChanged(nameof(Indent));
+        }
+    }
+
+    /// <summary>Left margin of the row: one step per level.</summary>
+    public Thickness Indent => new(Depth * 16, 0, 0, 0);
+
+    public KeyNodeViewModel? Parent { get; set; }
+
+    public TreeRows<KeyNodeViewModel>? Owner { get; set; }
 
     [ObservableProperty]
     private DiffStatus _status = DiffStatus.Hidden;
@@ -39,6 +61,8 @@ public sealed partial class KeyNodeViewModel(string name, string path) : Observa
     public bool IsMissing => Status == DiffStatus.Missing;
 
     partial void OnStatusChanged(DiffStatus value) => OnPropertyChanged(nameof(IsMissing));
+
+    partial void OnIsExpandedChanged(bool value) => Owner?.OnExpandedChanged(this);
 
     /// <summary>Recursively walks all descendants in depth-first order.</summary>
     public IEnumerable<KeyNodeViewModel> EnumerateDescendants()

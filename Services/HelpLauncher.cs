@@ -3,6 +3,8 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
+using System.Text;
 
 namespace RegCompare.Services;
 
@@ -25,17 +27,40 @@ public static class HelpLauncher
         using var browser = Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
     }
 
-    /// <summary>Write the embedded page into <paramref name="directory"/> and return its path.</summary>
+    /// <summary>Where the page shows the version of the application that wrote it.</summary>
+    private const string VersionToken = "{{VERSION}}";
+
+    /// <summary>The application's version, "1.2.3".</summary>
+    public static string Version
+    {
+        get
+        {
+            var assembly = typeof(HelpLauncher).Assembly;
+            var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                ?? assembly.GetName().Version?.ToString(3) ?? "";
+            var plus = version.IndexOf('+');
+            return plus < 0 ? version : version[..plus];
+        }
+    }
+
+    /// <summary>Write the embedded page into <paramref name="directory"/> (with the running version in
+    /// it) and return its path.</summary>
     public static string WritePage(string directory)
     {
-        using var page = typeof(HelpLauncher).Assembly.GetManifestResourceStream(ResourceName)
-            ?? throw new InvalidOperationException("The help page is missing from the executable.");
+        string html;
+        using (var page = typeof(HelpLauncher).Assembly.GetManifestResourceStream(ResourceName)
+            ?? throw new InvalidOperationException("The help page is missing from the executable."))
+        using (var reader = new StreamReader(page, Encoding.UTF8))
+        {
+            html = reader.ReadToEnd().Replace(VersionToken, Version, StringComparison.Ordinal);
+        }
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, PageName);
         try
         {
             using var file = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
-            page.CopyTo(file);
+            var bytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(html);
+            file.Write(bytes);
         }
         catch (IOException) when (File.Exists(path))
         {
