@@ -1,6 +1,6 @@
 // Type inference and display formatting for raw .reg value strings.
 // Renders DWORD/QWORD with their decimal value, and decodes MULTI_SZ / EXPAND_SZ
-// hex bytes back to UTF-16LE text.
+// hex bytes back to text (UTF-16LE, or ANSI in a REGEDIT4 file).
 
 using System;
 using System.Globalization;
@@ -52,12 +52,14 @@ public static class RegTypeFormatter
     /// <list type="bullet">
     /// <item>SZ: returns inner text with .reg escapes (<c>\\</c> -&gt; <c>\</c>, <c>\"</c> -&gt; <c>"</c>) decoded.</item>
     /// <item>DWORD/QWORD: returns <c>0xHHHH (decimal)</c>.</item>
-    /// <item>MULTI_SZ: decodes UTF-16LE hex bytes, splits on null chars, joins with newlines.</item>
-    /// <item>EXPAND_SZ: decodes UTF-16LE hex bytes, trims trailing nulls.</item>
+    /// <item>MULTI_SZ: decodes the hex bytes, splits on null chars, joins with newlines.</item>
+    /// <item>EXPAND_SZ: decodes the hex bytes, trims trailing nulls.</item>
     /// <item>BINARY and unrecognized values: returned as-is.</item>
     /// </list>
+    /// MULTI_SZ and EXPAND_SZ bytes are UTF-16LE in a version 5 file (an odd byte count is shown as
+    /// raw text), ANSI in a <c>REGEDIT4</c> file (<paramref name="regedit4"/>).
     /// </summary>
-    public static string GetDisplayValue(string raw)
+    public static string GetDisplayValue(string raw, bool regedit4 = false)
     {
         var span = raw.AsSpan();
         if (span.Length >= 2 && span[0] == '"' && span[^1] == '"')
@@ -84,11 +86,11 @@ public static class RegTypeFormatter
         }
         if (span.StartsWith("hex(7):", StringComparison.OrdinalIgnoreCase))
         {
-            return DecodeMultiSz(raw.AsSpan(7)) ?? raw;
+            return DecodeMultiSz(raw.AsSpan(7), regedit4) ?? raw;
         }
         if (span.StartsWith("hex(2):", StringComparison.OrdinalIgnoreCase))
         {
-            return DecodeExpandSz(raw.AsSpan(7)) ?? raw;
+            return DecodeExpandSz(raw.AsSpan(7), regedit4) ?? raw;
         }
         if (span.StartsWith("hex(b):", StringComparison.OrdinalIgnoreCase))
         {
@@ -100,6 +102,10 @@ public static class RegTypeFormatter
         }
         return raw;
     }
+
+    /// <summary>A text as written between quotes in a .reg file (a value name), without its escapes:
+    /// <c>\\</c> -&gt; <c>\</c>, <c>\"</c> -&gt; <c>"</c>.</summary>
+    public static string Unescape(string text) => UnescapeRegString(text);
 
     private static string UnescapeRegString(ReadOnlySpan<char> inner)
     {
@@ -124,20 +130,27 @@ public static class RegTypeFormatter
         return sb.ToString();
     }
 
-    private static string? DecodeMultiSz(ReadOnlySpan<char> hexBytes)
+    private static string? DecodeMultiSz(ReadOnlySpan<char> hexBytes, bool ansi)
     {
-        var bytes = ParseHexBytes(hexBytes);
-        if (bytes is null) return null;
-        var text = Encoding.Unicode.GetString(bytes);
+        var text = DecodeText(hexBytes, ansi);
+        if (text is null) return null;
         var lines = text.Split('\0', StringSplitOptions.RemoveEmptyEntries);
         return string.Join('\n', lines);
     }
 
-    private static string? DecodeExpandSz(ReadOnlySpan<char> hexBytes)
+    private static string? DecodeExpandSz(ReadOnlySpan<char> hexBytes, bool ansi) => DecodeText(hexBytes, ansi)?.TrimEnd('\0');
+
+    /// <summary>
+    /// The text held by a hex list: ANSI bytes, or UTF-16LE ones. Null when the list cannot be read,
+    /// or holds an odd number of bytes for UTF-16 (not text, then).
+    /// </summary>
+    private static string? DecodeText(ReadOnlySpan<char> hexBytes, bool ansi)
     {
         var bytes = ParseHexBytes(hexBytes);
         if (bytes is null) return null;
-        return Encoding.Unicode.GetString(bytes).TrimEnd('\0');
+        if (ansi) return AnsiEncoding.Current.GetString(bytes);
+        if (bytes.Length % 2 != 0) return null;
+        return Encoding.Unicode.GetString(bytes);
     }
 
     /// <summary>

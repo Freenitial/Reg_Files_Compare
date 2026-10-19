@@ -8,60 +8,60 @@ namespace RegCompare.Services;
 
 /// <summary>
 /// Stateless resolver that expands a list of dropped filesystem paths into a flat list of .reg files.
-/// Folders are scanned recursively; extension-less files are included only when the first line
-/// starts with <c>Windows Registry Editor</c>.
+/// Folders are scanned recursively for <c>*.reg</c> files; a file without extension given directly
+/// is included only when its first line is a .reg header.
 /// </summary>
 public sealed class DragDropService
 {
     /// <summary>
-    /// Walk every dropped path and yield the absolute path of each .reg file to load.
+    /// Every depth up to 32 levels (a junction that points back to a parent would otherwise loop);
+    /// hidden and system entries are skipped (as Explorer hides them: the junctions of the user
+    /// profile among them), and so are the subfolders that cannot be read.
     /// </summary>
-    public IEnumerable<string> ResolveDroppedPaths(IEnumerable<string> droppedPaths)
+    private static readonly EnumerationOptions FolderScan = new()
     {
+        RecurseSubdirectories = true,
+        MaxRecursionDepth = 32,
+        IgnoreInaccessible = true,
+    };
+
+    /// <summary>
+    /// Every .reg file named by <paramref name="droppedPaths"/>, in order. A path that cannot be read
+    /// (a folder whose listing fails, a file that cannot be opened) is added to
+    /// <paramref name="unreadable"/> with the reason, and the others are still resolved.
+    /// </summary>
+    public List<string> ResolveDroppedPaths(IEnumerable<string> droppedPaths, ICollection<string>? unreadable = null)
+    {
+        var result = new List<string>();
         foreach (var path in droppedPaths)
         {
             if (string.IsNullOrWhiteSpace(path)) continue;
 
-            if (Directory.Exists(path))
-            {
-                IEnumerable<string> regs;
-                try
-                {
-                    regs = Directory.EnumerateFiles(path, "*.reg", SearchOption.AllDirectories);
-                }
-                catch
-                {
-                    continue;
-                }
-                foreach (var file in regs) yield return file;
-                continue;
-            }
-
-            if (!File.Exists(path)) continue;
-
-            if (path.EndsWith(".reg", StringComparison.OrdinalIgnoreCase))
-            {
-                yield return path;
-                continue;
-            }
-
-            if (Path.HasExtension(path)) continue;
-
-            string? firstLine;
             try
             {
-                using var reader = new StreamReader(path);
-                firstLine = reader.ReadLine();
-            }
-            catch
-            {
-                continue;
-            }
+                if (Directory.Exists(path))
+                {
+                    // The folder itself must be readable (IgnoreInaccessible would hide that it is not).
+                    using (var probe = Directory.EnumerateFileSystemEntries(path).GetEnumerator()) probe.MoveNext();
+                    result.AddRange(Directory.EnumerateFiles(path, "*.reg", FolderScan));
+                    continue;
+                }
 
-            if (firstLine is not null && firstLine.StartsWith("Windows Registry Editor", StringComparison.OrdinalIgnoreCase))
+                if (!File.Exists(path)) continue;
+
+                if (path.EndsWith(".reg", StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Add(path);
+                    continue;
+                }
+
+                if (!Path.HasExtension(path) && RegFileParser.HasRegHeader(path)) result.Add(path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
             {
-                yield return path;
+                unreadable?.Add($"{path} ({ex.Message})");
             }
         }
+        return result;
     }
 }

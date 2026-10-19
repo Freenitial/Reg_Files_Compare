@@ -1,6 +1,7 @@
 // Code-behind for the main window. Handles only View-level concerns: file picker invocation,
-// Enter-to-search shortcut, the OS drag-drop integration (Avalonia 12 IDataTransfer API),
-// and forcing the dark/light Win32 title bar via DwmSetWindowAttribute + a forced non-client repaint.
+// Enter-to-search shortcut, Help button and F1, the OS drag-drop integration (Avalonia 12
+// IDataTransfer API), and forcing the dark/light Win32 title bar via DwmSetWindowAttribute + a
+// forced non-client repaint.
 
 using System;
 using System.Linq;
@@ -13,6 +14,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
 using Avalonia.Styling;
 using Avalonia.Threading;
+using RegCompare.Services;
 using RegCompare.ViewModels;
 
 namespace RegCompare.Views;
@@ -136,6 +138,36 @@ public partial class MainWindow : Window
     {
         if (DataContext is not MainWindowViewModel vm) return;
         await vm.BrowseFilesCommand.ExecuteAsync(this);
+    }
+
+    private void OnHelpClick(object? sender, RoutedEventArgs e) => OpenHelp();
+
+    /// <summary>Time of the last F1 press (Environment.TickCount64).</summary>
+    private long _lastF1;
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (e.Key != Key.F1 || e.Handled) return;
+        e.Handled = true;
+        // A held key repeats: one page, not one per repetition.
+        var now = Environment.TickCount64;
+        var repeated = now - _lastF1 < 1000;
+        _lastF1 = now;
+        if (!repeated) OpenHelp();
+    }
+
+    /// <summary>Open the documentation in the browser; the status bar says when that fails.</summary>
+    private void OpenHelp()
+    {
+        try
+        {
+            HelpLauncher.Open();
+        }
+        catch (Exception ex)
+        {
+            if (DataContext is MainWindowViewModel vm) vm.StatusText = $"The documentation could not be opened: {ex.Message}";
+        }
     }
 
     private void OnSearchKeyDown(object? sender, KeyEventArgs e)

@@ -63,4 +63,30 @@ public class RegTypeFormatterTests
         var raw = "hex(2):25,00,50,00,41,00,54,00,48,00,25,00,00,00";
         Assert.Equal("%PATH%", RegTypeFormatter.GetDisplayValue(raw));
     }
+
+    // In a REGEDIT4 file, EXPAND_SZ and MULTI_SZ data are ANSI bytes, one per character.
+    [Fact]
+    public void GetDisplayValue_Regedit4_DecodesAnsiBytes()
+    {
+        Assert.Equal("%PATH%", RegTypeFormatter.GetDisplayValue("hex(2):25,50,41,54,48,25,00", regedit4: true));
+        Assert.Equal("ab\ncd", RegTypeFormatter.GetDisplayValue("hex(7):61,62,00,63,64,00,00", regedit4: true));
+    }
+
+    // An odd number of bytes is not UTF-16 text: shown as the raw hex.
+    [Fact]
+    public void GetDisplayValue_OddByteCount_IsShownRaw()
+    {
+        Assert.Equal("hex(2):41,00,42", RegTypeFormatter.GetDisplayValue("hex(2):41,00,42"));
+        Assert.Equal("hex(7):41,00,42", RegTypeFormatter.GetDisplayValue("hex(7):41,00,42"));
+    }
+
+    // A token that is not a hex byte, or a DWORD/QWORD of the wrong width: the raw text.
+    [Theory]
+    [InlineData("hex(2):zz,00")]
+    [InlineData("hex(4):01,02,03")]
+    [InlineData("hex(b):01,02,03,04")]
+    public void GetDisplayValue_Undecodable_IsShownRaw(string raw)
+    {
+        Assert.Equal(raw, RegTypeFormatter.GetDisplayValue(raw));
+    }
 }

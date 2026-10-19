@@ -3,7 +3,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
@@ -13,7 +12,7 @@ using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
-using Avalonia.Media;
+using RegCompare.Services;
 using RegCompare.ViewModels;
 
 namespace RegCompare.Views;
@@ -23,7 +22,13 @@ public partial class SearchColumnView : UserControl
     private const double MinValuesColumnWidth = 40;
     private const double AutoFitPadding = 16;
 
-    public SearchColumnView() => InitializeComponent();
+    public SearchColumnView()
+    {
+        InitializeComponent();
+        // A row selected to follow another column is brought into view inside this column's tree or
+        // grid only: the request stops here, so the columns area does not scroll sideways to it.
+        AddHandler(RequestBringIntoViewEvent, static (_, e) => e.Handled = true);
+    }
 
     private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
 
@@ -52,7 +57,7 @@ public partial class SearchColumnView : UserControl
     private void OnNameThumbDoubleTapped(object? sender, TappedEventArgs e)
     {
         if (DataContext is not SearchColumnViewModel vm) return;
-        var width = MeasureMaxWidth("Name", vm.ValueRows.Select(static r => r.Name));
+        var width = MeasureMaxWidth("Name", vm.ValueRows.Select(static r => r.DisplayName));
         vm.Main.ValuesNameColumnWidth = new GridLength(Math.Ceiling(width) + AutoFitPadding, GridUnitType.Pixel);
         e.Handled = true;
     }
@@ -66,51 +71,28 @@ public partial class SearchColumnView : UserControl
     }
 
     private static double MeasureMaxWidth(string header, IEnumerable<string> rowValues)
-    {
-        var max = MeasureTextWidth(header);
-        foreach (var v in rowValues)
-        {
-            var w = MeasureTextWidth(v);
-            if (w > max) max = w;
-        }
-        return max;
-    }
+        => Math.Max(TextWidth.Measure(header), TextWidth.Widest(rowValues));
 
-    private static double MeasureTextWidth(string? text)
-    {
-        if (string.IsNullOrEmpty(text)) return 0;
-        var formatted = new FormattedText(
-            text,
-            CultureInfo.InvariantCulture,
-            FlowDirection.LeftToRight,
-            Typeface.Default,
-            12,
-            null);
-        return formatted.Width;
-    }
 
     private async void OnGridCopyRowsClick(object? sender, RoutedEventArgs e)
     {
         var rows = GetSelectedValueRows();
         if (rows.Count == 0) return;
-        var text = string.Join('\n', rows.Select(r => $"{r.Name}\t{r.Type}\t{r.DisplayValue}"));
-        await CopyToClipboardAsync(text);
+        await CopyToClipboardAsync(ValueRowsText.Rows(rows));
     }
 
     private async void OnGridCopyNamesClick(object? sender, RoutedEventArgs e)
     {
         var rows = GetSelectedValueRows();
         if (rows.Count == 0) return;
-        var text = string.Join('\n', rows.Select(static r => r.Name));
-        await CopyToClipboardAsync(text);
+        await CopyToClipboardAsync(ValueRowsText.Names(rows));
     }
 
     private async void OnGridCopyDataClick(object? sender, RoutedEventArgs e)
     {
         var rows = GetSelectedValueRows();
         if (rows.Count == 0) return;
-        var text = string.Join('\n', rows.Select(static r => r.DisplayValue));
-        await CopyToClipboardAsync(text);
+        await CopyToClipboardAsync(ValueRowsText.Data(rows));
     }
 
     private List<ValueRowViewModel> GetSelectedValueRows()
@@ -120,10 +102,18 @@ public partial class SearchColumnView : UserControl
         return grid.SelectedItems?.OfType<ValueRowViewModel>().ToList() ?? [];
     }
 
+    /// <summary>Put a text on the clipboard; when another program holds it, the status bar says so.</summary>
     private async Task CopyToClipboardAsync(string text)
     {
-        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-        if (clipboard is null) return;
-        await clipboard.SetTextAsync(text);
+        try
+        {
+            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+            if (clipboard is null) return;
+            await clipboard.SetTextAsync(text);
+        }
+        catch (Exception ex)
+        {
+            if (DataContext is ColumnViewModelBase vm) vm.Main.StatusText = $"The clipboard could not be written: {ex.Message}";
+        }
     }
 }

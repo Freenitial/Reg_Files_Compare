@@ -35,9 +35,6 @@ public sealed partial class KeyNodeViewModel(string name, string path) : Observa
     [ObservableProperty]
     private bool _isExpanded;
 
-    [ObservableProperty]
-    private bool _isSelected;
-
     /// <summary>Convenience flag for the Strikethrough converter.</summary>
     public bool IsMissing => Status == DiffStatus.Missing;
 

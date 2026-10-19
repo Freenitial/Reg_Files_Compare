@@ -34,6 +34,7 @@
                     <Grid ColumnDefinitions="*,22">
                         <TextBlock Grid.Column="0"
                                    Text="{Binding Title}"
+                                   ToolTip.Tip="{Binding HeaderToolTip}"
                                    FontWeight="Bold"
                                    VerticalAlignment="Center"
                                    Padding="6,0,0,0"
@@ -66,8 +67,8 @@
                         <TreeView.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="Copy Row" Click="OnTreeCopyRowClick" />
-                                <MenuItem Header="Copy Row + Childs"
-                                          Click="OnTreeCopyRowWithChildsClick"
+                                <MenuItem Header="Copy Row + Children"
+                                          Click="OnTreeCopyRowWithChildrenClick"
                                           IsEnabled="{Binding SelectedNode.HasChildren, FallbackValue=False}" />
                                 <Separator />
                                 <MenuItem Header="Export..." Click="OnTreeExportClick" />
@@ -153,13 +154,12 @@
                             </Grid>
                         </Border>
 
-                        <!-- Rows. Data column = Auto + SharedSizeGroup so every row's Data
-                             column shares a common width = max content width across all rows.
-                             When that total exceeds the ListBox viewport, the ListBox's internal
-                             ScrollViewer shows a horizontal scrollbar. -->
+                        <!-- Rows, virtualized (only those on screen are created: a key may hold
+                             thousands of values). Every row's Data column has the width of the widest
+                             datum, measured by the view model (DataColumnWidth). When a row is wider
+                             than the ListBox viewport, its ScrollViewer shows a horizontal scrollbar. -->
                         <ListBox Grid.Row="1"
                                  x:Name="ValuesGrid"
-                                 Grid.IsSharedSizeScope="True"
                                  ItemsSource="{Binding ValueRows}"
                                  SelectedItem="{Binding SelectedValueRow}"
                                  SelectionMode="Multiple,Toggle"
@@ -170,7 +170,7 @@
                                  ScrollViewer.VerticalScrollBarVisibility="Auto">
                             <ListBox.ItemsPanel>
                                 <ItemsPanelTemplate>
-                                    <StackPanel />
+                                    <VirtualizingStackPanel />
                                 </ItemsPanelTemplate>
                             </ListBox.ItemsPanel>
                             <ListBox.ContextMenu>
@@ -190,9 +190,9 @@
                                             <ColumnDefinition Width="4" />
                                             <ColumnDefinition Width="{Binding DataContext.Main.ValuesTypeColumnWidth, ElementName=Self}" />
                                             <ColumnDefinition Width="4" />
-                                            <ColumnDefinition Width="Auto" SharedSizeGroup="DataCol" />
+                                            <ColumnDefinition Width="{Binding DataContext.DataColumnWidth, ElementName=Self}" />
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                        <TextBlock Grid.Column="0" Text="{Binding DisplayName}"
                                                    Padding="5,0" VerticalAlignment="Center"
                                                    TextTrimming="CharacterEllipsis"
                                                    Foreground="{Binding Status, Converter={StaticResource StatusToBrush}}"

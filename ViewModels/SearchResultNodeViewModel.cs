@@ -13,6 +13,9 @@ public sealed partial class SearchResultNodeViewModel(string displayText, bool i
 {
     public string DisplayText { get; } = displayText;
 
+    /// <summary>Tooltip: the full path of a file group's file.</summary>
+    public string? ToolTip { get; init; }
+
     /// <summary>True when this node is a file group; false when it is a single matching key.</summary>
     public bool IsFileRoot { get; } = isFileRoot;
 
@@ -22,9 +25,6 @@ public sealed partial class SearchResultNodeViewModel(string displayText, bool i
 
     [ObservableProperty]
     private bool _isExpanded = true;
-
-    [ObservableProperty]
-    private bool _isSelected;
 
     /// <summary>Index of the file this node belongs to (file root or key match).</summary>
     public int FileIndex { get; init; } = -1;

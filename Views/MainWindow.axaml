@@ -14,7 +14,11 @@
         Background="{DynamicResource RegRootBackground}"
         Foreground="{DynamicResource RegForeground}"
         FontSize="12"
+        FontFeatures="-calt"
         WindowStartupLocation="CenterScreen">
+
+    <!-- FontFeatures: Inter's contextual alternates draw the "x" of "0x0000000a" between digits as a
+         multiplication sign; registry data must read exactly as written. -->
 
     <Grid RowDefinitions="55,30,22,*,22">
 
@@ -112,15 +116,23 @@
             </DockPanel>
         </Border>
 
-        <!-- 3. Search box -->
+        <!-- 3. Search box + Help (under Compare: the toolbar has no room left at the minimum width) -->
         <Border Grid.Row="2" Background="{DynamicResource RegSecondaryPanel}">
-            <Grid Margin="5,1" ColumnDefinitions="Auto,10,*">
+            <Grid Margin="5,1" ColumnDefinitions="Auto,10,*,4,Auto">
                 <TextBlock Grid.Column="0"
                            Text="Search (press Enter):"
                            VerticalAlignment="Center" />
                 <TextBox Grid.Column="2"
                          Text="{Binding SearchTerm}"
                          KeyDown="OnSearchKeyDown" />
+                <Button Grid.Column="4"
+                        Content="Help"
+                        Width="100"
+                        Padding="0"
+                        HorizontalContentAlignment="Center"
+                        VerticalContentAlignment="Center"
+                        ToolTip.Tip="Documentation, English and French (F1)"
+                        Click="OnHelpClick" />
             </Grid>
         </Border>
 
@@ -167,6 +179,8 @@
                 BorderThickness="0,1,0,0"
                 Padding="6,2">
             <TextBlock Text="{Binding StatusText}"
+                       ToolTip.Tip="{Binding StatusText}"
+                       TextTrimming="CharacterEllipsis"
                        VerticalAlignment="Center" />
         </Border>
 

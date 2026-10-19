@@ -41,7 +41,7 @@ Windows Registry Editor Version 5.00
             var values = file.Data["HKEY_LOCAL_MACHINE\\Software\\RegCompareTest"];
             Assert.Equal(7, values.Count);
             Assert.Equal("\"Bar\"", values["Foo"]);
-            Assert.Equal("\"Default value here\"", values["(Default)"]);
+            Assert.Equal("\"Default value here\"", values[""]);
             Assert.Equal("dword:000000ff", values["Counter"]);
             Assert.Equal("qword:0000000000000010", values["Big"]);
             Assert.Equal("hex:01,02,03", values["Bytes"]);
@@ -109,18 +109,118 @@ Windows Registry Editor Version 5.00
         finally { File.Delete(path); }
     }
 
+    // A REGEDIT4 file is ANSI: read in the system code page (Windows-1252 has € and ’ where Latin-1
+    // has control characters), and flagged so its hex(2)/hex(7) data are read as ANSI too.
     [Fact]
-    public void Parse_AnsiFileWithoutBom_FallsBackToLatin1()
+    public void Parse_Regedit4File_IsReadInTheAnsiCodePage()
     {
         var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".reg");
-        var content = "REGEDIT4\r\n\r\n[HKEY_CURRENT_USER\\Test]\r\n\"accent\"=\"café\"\r\n";
-        File.WriteAllBytes(path, Encoding.Latin1.GetBytes(content));
+        const string text = "café 5 € l’été";
+        var content = $"REGEDIT4\r\n\r\n[HKEY_CURRENT_USER\\Test]\r\n\"accent\"=\"{text}\"\r\n";
+        var ansi = AnsiEncoding.Current;
+        File.WriteAllBytes(path, ansi.GetBytes(content));
         try
         {
             var file = new RegFileParser().Parse(path);
+            Assert.True(file.IsRegedit4);
+            Assert.Equal($"\"{ansi.GetString(ansi.GetBytes(text))}\"", file.Data["HKEY_CURRENT_USER\\Test"]["accent"]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    // A version 5 file saved as ANSI by a text editor (no BOM, not valid UTF-8) falls back to ANSI.
+    [Fact]
+    public void Parse_Version5FileInAnsi_FallsBackToTheAnsiCodePage()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".reg");
+        var content = "Windows Registry Editor Version 5.00\r\n\r\n[HKEY_CURRENT_USER\\Test]\r\n\"accent\"=\"café\"\r\n";
+        File.WriteAllBytes(path, AnsiEncoding.Current.GetBytes(content));
+        try
+        {
+            var file = new RegFileParser().Parse(path);
+            Assert.False(file.IsRegedit4);
             Assert.Equal("\"café\"", file.Data["HKEY_CURRENT_USER\\Test"]["accent"]);
         }
         finally { File.Delete(path); }
+    }
+
+    // "@" is the default value, stored under the registry's own name for it (empty); a value
+    // literally named "(Default)" is another value.
+    [Fact]
+    public void Parse_DefaultValue_IsNotTheValueNamedDefault()
+    {
+        var path = WriteTemp("""
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\Test]
+@="the default"
+"(Default)"="a value named (Default)"
+""");
+        try
+        {
+            var values = new RegFileParser().Parse(path).Data["HKEY_CURRENT_USER\\Test"];
+            Assert.Equal(2, values.Count);
+            Assert.Equal("\"the default\"", values[""]);
+            Assert.Equal("\"a value named (Default)\"", values["(Default)"]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    // Registry Editor writes a string's line breaks as they are: the value goes on until its closing
+    // quote, whatever the lines in between look like.
+    [Fact]
+    public void Parse_StringWithLineBreaks_IsOneValue()
+    {
+        var path = WriteTemp("Windows Registry Editor Version 5.00\r\n\r\n[HKEY_CURRENT_USER\\Test]\r\n"
+            + "\"Tip\"=\"Backup \r\nLast run: FAILED = disk full\r\n[not a key]\r\n  said \\\"no\\\"\"\r\n"
+            + "\"Next\"=\"x\"\r\n");
+        try
+        {
+            var file = new RegFileParser().Parse(path);
+            Assert.Single(file.Data);
+            var values = file.Data["HKEY_CURRENT_USER\\Test"];
+            Assert.Equal(2, values.Count);
+            Assert.Equal("\"Backup \r\nLast run: FAILED = disk full\r\n[not a key]\r\n  said \\\"no\\\"\"", values["Tip"]);
+            Assert.Equal("\"x\"", values["Next"]);
+            Assert.Equal("Backup \r\nLast run: FAILED = disk full\r\n[not a key]\r\n  said \"no\"", RegTypeFormatter.GetDisplayValue(values["Tip"]));
+        }
+        finally { File.Delete(path); }
+    }
+
+    // A long hex value wraps with a backslash and an indented next line: joined into one value.
+    [Fact]
+    public void Parse_HexContinuationLines_AreJoined()
+    {
+        var path = WriteTemp("Windows Registry Editor Version 5.00\r\n\r\n[HKEY_CURRENT_USER\\Test]\r\n"
+            + "\"Bin\"=hex:01,02,\\\r\n  03,04,\\\r\n  05\r\n\"After\"=\"y\"\r\n");
+        try
+        {
+            var values = new RegFileParser().Parse(path).Data["HKEY_CURRENT_USER\\Test"];
+            Assert.Equal("hex:01,02,03,04,05", values["Bin"]);
+            Assert.Equal("\"y\"", values["After"]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    // A file without extension is taken when its first line is a .reg header, in UTF-16 or ANSI.
+    [Fact]
+    public void HasRegHeader_RecognizesBothHeaders()
+    {
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            var v5 = Path.Combine(dir, "v5");
+            File.WriteAllText(v5, "Windows Registry Editor Version 5.00\r\n", Encoding.Unicode);
+            var v4 = Path.Combine(dir, "v4");
+            File.WriteAllBytes(v4, Encoding.ASCII.GetBytes("REGEDIT4\r\n"));
+            var other = Path.Combine(dir, "other");
+            File.WriteAllText(other, "Just some text\r\n");
+
+            Assert.True(RegFileParser.HasRegHeader(v5));
+            Assert.True(RegFileParser.HasRegHeader(v4));
+            Assert.False(RegFileParser.HasRegHeader(other));
+        }
+        finally { Directory.Delete(dir, recursive: true); }
     }
 
     [Fact]

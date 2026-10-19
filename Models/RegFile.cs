@@ -24,10 +24,17 @@ public sealed class RegFile
 
     /// <summary>
     /// Parsed content. The outer key is the full registry key path (without surrounding brackets).
-    /// The inner key is the value name (with <c>(Default)</c> for the <c>@</c> entry).
-    /// The inner value is the raw textual representation as written in the .reg file (right-hand side of the <c>=</c>).
+    /// The inner key is the value name as written in the file (escapes kept), the empty string for
+    /// the default value (<c>@</c>), as in the registry itself. The inner value is the raw textual
+    /// representation as written in the .reg file (right-hand side of the <c>=</c>).
     /// </summary>
     public required Dictionary<string, Dictionary<string, string>> Data { get; init; }
+
+    /// <summary>
+    /// True for a <c>REGEDIT4</c> file (its first line): its text is ANSI, and its <c>hex(2)</c> and
+    /// <c>hex(7)</c> data hold ANSI bytes instead of UTF-16.
+    /// </summary>
+    public bool IsRegedit4 { get; init; }
 
     /// <summary>Human-friendly file size (B / KB / MB).</summary>
     public string DisplaySize

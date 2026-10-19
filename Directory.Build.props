@@ -16,6 +16,14 @@
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <AnalysisLevel>latest</AnalysisLevel>
     <RootNamespace>RegCompare</RootNamespace>
+
+    <!-- The full Build on publish. The .NET 11 rc.2 SDK publishes Native AOT "optimized" by
+         default (UseOptimizedPublish: Compile only, not Build), so Avalonia's XAML compiler never
+         rewrites the assembly the AOT compiler reads: the exe starts, then its window dies with
+         "No precompiled XAML found for RegCompare.App". Unconditional because PublishAot is set
+         later, in RegCompare.csproj; the SDK reads it only when PublishAot is on. build.cmd checks
+         the published exe for its compiled XAML (BUILD.md says how). -->
+    <UseOptimizedPublish>false</UseOptimizedPublish>
   </PropertyGroup>
 
 </Project>

@@ -1,7 +1,21 @@
-bin/
-obj/
+# Build output
+[Bb]in/
+[Oo]bj/
+publish/
+
+# Visual Studio / Rider / VS Code
 .vs/
+.vscode/
 .idea/
 *.user
 *.suo
-publish/
+
+# MSBuild / diagnostics
+*.binlog
+
+# OS
+Thumbs.db
+.DS_Store
+
+# build.cmd output (signed by sign.cmd)
+build/

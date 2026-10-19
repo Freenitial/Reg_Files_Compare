@@ -4,7 +4,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -16,7 +15,6 @@ using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
-using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using RegCompare.Services;
 using RegCompare.ViewModels;
@@ -28,7 +26,13 @@ public partial class FileColumnView : UserControl
     private const double MinValuesColumnWidth = 40;
     private const double AutoFitPadding = 16;
 
-    public FileColumnView() => InitializeComponent();
+    public FileColumnView()
+    {
+        InitializeComponent();
+        // A row selected to follow another column is brought into view inside this column's tree or
+        // grid only: the request stops here, so the columns area does not scroll sideways to it.
+        AddHandler(RequestBringIntoViewEvent, static (_, e) => e.Handled = true);
+    }
 
     private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
 
@@ -60,7 +64,7 @@ public partial class FileColumnView : UserControl
     private void OnNameThumbDoubleTapped(object? sender, TappedEventArgs e)
     {
         if (DataContext is not FileColumnViewModel vm) return;
-        var width = MeasureMaxWidth("Name", vm.ValueRows.Select(static r => r.Name));
+        var width = MeasureMaxWidth("Name", vm.ValueRows.Select(static r => r.DisplayName));
         vm.Main.ValuesNameColumnWidth = new GridLength(Math.Ceiling(width) + AutoFitPadding, GridUnitType.Pixel);
         e.Handled = true;
     }
@@ -74,28 +78,8 @@ public partial class FileColumnView : UserControl
     }
 
     private static double MeasureMaxWidth(string header, IEnumerable<string> rowValues)
-    {
-        var max = MeasureTextWidth(header);
-        foreach (var v in rowValues)
-        {
-            var w = MeasureTextWidth(v);
-            if (w > max) max = w;
-        }
-        return max;
-    }
+        => Math.Max(TextWidth.Measure(header), TextWidth.Widest(rowValues));
 
-    private static double MeasureTextWidth(string? text)
-    {
-        if (string.IsNullOrEmpty(text)) return 0;
-        var formatted = new FormattedText(
-            text,
-            CultureInfo.InvariantCulture,
-            FlowDirection.LeftToRight,
-            Typeface.Default,
-            12,
-            null);
-        return formatted.Width;
-    }
 
     // ---------- Tree context menu ----------
 
@@ -105,7 +89,7 @@ public partial class FileColumnView : UserControl
         await CopyToClipboardAsync(node.Name);
     }
 
-    private async void OnTreeCopyRowWithChildsClick(object? sender, RoutedEventArgs e)
+    private async void OnTreeCopyRowWithChildrenClick(object? sender, RoutedEventArgs e)
     {
         if (DataContext is not FileColumnViewModel vm || vm.SelectedNode is not { } node) return;
         var sb = new StringBuilder();
@@ -117,12 +101,12 @@ public partial class FileColumnView : UserControl
     private async void OnTreeExportClick(object? sender, RoutedEventArgs e)
     {
         if (DataContext is not FileColumnViewModel vm || vm.SelectedNode is not { } node) return;
-        var path = await PickRegSaveFileAsync(SuggestExportName(node.Path));
-        if (path is null) return;
-        var content = RegFileWriter.BuildFromSubtree(vm.File, node.Path);
-        // "Windows Registry Editor Version 5.00" files are UTF-16LE; regedit can mangle
-        // non-ASCII characters when importing UTF-8.
-        await File.WriteAllTextAsync(path, content, Encoding.Unicode);
+        if (!RegFileWriter.HasSubtree(vm.File, node.Path))
+        {
+            vm.Main.StatusText = $"Nothing to export: {vm.File.FileName} has no key at {node.Path}";
+            return;
+        }
+        await ExportAsync(vm, node.Path, () => RegFileWriter.BuildFromSubtree(vm.File, node.Path));
     }
 
     private static void AppendAsciiChildren(StringBuilder sb, KeyNodeViewModel node, string prefix)
@@ -144,24 +128,21 @@ public partial class FileColumnView : UserControl
     {
         var rows = GetSelectedValueRows();
         if (rows.Count == 0) return;
-        var text = string.Join('\n', rows.Select(r => $"{r.Name}\t{r.Type}\t{r.DisplayValue}"));
-        await CopyToClipboardAsync(text);
+        await CopyToClipboardAsync(ValueRowsText.Rows(rows));
     }
 
     private async void OnGridCopyNamesClick(object? sender, RoutedEventArgs e)
     {
         var rows = GetSelectedValueRows();
         if (rows.Count == 0) return;
-        var text = string.Join('\n', rows.Select(static r => r.Name));
-        await CopyToClipboardAsync(text);
+        await CopyToClipboardAsync(ValueRowsText.Names(rows));
     }
 
     private async void OnGridCopyDataClick(object? sender, RoutedEventArgs e)
     {
         var rows = GetSelectedValueRows();
         if (rows.Count == 0) return;
-        var text = string.Join('\n', rows.Select(static r => r.DisplayValue));
-        await CopyToClipboardAsync(text);
+        await CopyToClipboardAsync(ValueRowsText.Data(rows));
     }
 
     private async void OnGridExportClick(object? sender, RoutedEventArgs e)
@@ -173,14 +154,45 @@ public partial class FileColumnView : UserControl
         var rows = GetSelectedValueRows();
         if (rows.Count == 0) return;
 
-        var path = await PickRegSaveFileAsync(SuggestExportName(keyPath));
-        if (path is null) return;
-
-        var content = RegFileWriter.BuildFromValues(vm.File, keyPath, rows.Select(static r => r.Name));
-        await File.WriteAllTextAsync(path, content, Encoding.Unicode);
+        // A red row (a value missing from this file) has nothing to write.
+        var names = rows.Select(static r => r.Name)
+            .Where(name => vm.File.Data.TryGetValue(keyPath, out var values) && values.ContainsKey(name))
+            .ToList();
+        if (names.Count == 0)
+        {
+            vm.Main.StatusText = $"Nothing to export: {vm.File.FileName} has none of the selected values";
+            return;
+        }
+        await ExportAsync(vm, keyPath, () => RegFileWriter.BuildFromValues(vm.File, keyPath, names));
     }
 
     // ---------- Helpers ----------
+
+    /// <summary>
+    /// Build the export in the file's own format, ask where to save it, then write it. The status bar
+    /// says where it went, or why it could not be written (a folder without write access, a full
+    /// disk, a character the ANSI code page of a REGEDIT4 file cannot write).
+    /// </summary>
+    private async Task ExportAsync(FileColumnViewModel vm, string keyPath, Func<string> build)
+    {
+        try
+        {
+            // Encoded first: what cannot be written fails before the dialog.
+            var bytes = RegFileWriter.Encode(vm.File, build());
+            var path = await PickRegSaveFileAsync(SuggestExportName(keyPath));
+            if (path is null) return;
+            await File.WriteAllBytesAsync(path, bytes);
+            vm.Main.StatusText = $"Exported to {path}";
+        }
+        catch (EncoderFallbackException ex)
+        {
+            vm.Main.StatusText = $"The export failed: {vm.File.FileName} is a REGEDIT4 file, and its ANSI code page cannot write '{ex.CharUnknown}'";
+        }
+        catch (Exception ex)
+        {
+            vm.Main.StatusText = $"The export failed: {ex.Message}";
+        }
+    }
 
     private List<ValueRowViewModel> GetSelectedValueRows()
     {
@@ -189,11 +201,19 @@ public partial class FileColumnView : UserControl
         return grid.SelectedItems?.OfType<ValueRowViewModel>().ToList() ?? [];
     }
 
+    /// <summary>Put a text on the clipboard; when another program holds it, the status bar says so.</summary>
     private async Task CopyToClipboardAsync(string text)
     {
-        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-        if (clipboard is null) return;
-        await clipboard.SetTextAsync(text);
+        try
+        {
+            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+            if (clipboard is null) return;
+            await clipboard.SetTextAsync(text);
+        }
+        catch (Exception ex)
+        {
+            if (DataContext is ColumnViewModelBase vm) vm.Main.StatusText = $"The clipboard could not be written: {ex.Message}";
+        }
     }
 
     private async Task<string?> PickRegSaveFileAsync(string suggestedName)

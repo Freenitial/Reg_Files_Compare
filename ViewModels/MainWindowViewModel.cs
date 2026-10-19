@@ -22,13 +22,37 @@ namespace RegCompare.ViewModels;
 /// <see cref="DiffEngine"/>, and the cross-column synchronization state
 /// (<see cref="SelectedKeyPath"/>, <see cref="SelectedValueName"/>).
 /// </summary>
+/// <remarks>
+/// Once a comparison of two files or more has been made, the display follows the file list
+/// (<see cref="_following"/>): ticking or unticking a file, choosing a reference, adding or removing
+/// files compares again, until the list is emptied. A change made while a comparison runs is
+/// replayed when it ends.
+/// </remarks>
 public sealed partial class MainWindowViewModel : ViewModelBase
 {
+    /// <summary>At most this many load problems are listed in the status bar.</summary>
+    private const int MaxProblemsShown = 10;
+
     private readonly RegFileParser _parser;
     private readonly DragDropService _dragDrop;
     private readonly ILogger<MainWindowViewModel> _logger;
     private bool _isUpdatingList;
     private bool _comparePending;
+
+    /// <summary>
+    /// The display follows the file list: set by the first comparison of two files or more, cleared
+    /// when the list is emptied.
+    /// </summary>
+    private bool _following;
+
+    /// <summary>Set while the application itself writes <see cref="ReferenceFile"/> (not a user's choice).</summary>
+    private bool _settingReference;
+
+    /// <summary>
+    /// Problems met while loading the last files (unreadable, already added, no key). The status bar
+    /// shows them, and the comparison that follows keeps them beside its own count.
+    /// </summary>
+    private readonly List<string> _loadProblems = [];
 
     public ThemeService Theme { get; }
 
@@ -56,6 +80,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private string? _selectedKeyPath;
 
+    /// <summary>Name of the selected value (empty for the default value), null when none is selected.</summary>
     [ObservableProperty]
     private string? _selectedValueName;
 
@@ -121,14 +146,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             ],
         });
 
-        foreach (var item in picked)
-        {
-            var path = item.TryGetLocalPath();
-            if (!string.IsNullOrEmpty(path)) AddRegFile(path);
-        }
+        AddFiles(picked.Select(static item => item.TryGetLocalPath()).OfType<string>().Where(static p => p.Length > 0));
     }
 
-    /// <summary>Remove a single file (triggered by the per-row X button) and rebuild the comparison.</summary>
+    /// <summary>
+    /// Remove a single file (the per-row X button, or the X of its column). When the display follows
+    /// the file list, the comparison is made again without it. The search columns stay: they keep the
+    /// results they were built with.
+    /// </summary>
     public void RemoveLoadedFile(LoadedFileViewModel file)
     {
         _isUpdatingList = true;
@@ -136,19 +161,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         {
             LoadedFiles.Remove(file);
             ResetReferenceIfNeeded();
-
-            Columns.Clear();
-            StatusText = "Compared files = 0";
-            SelectedKeyPath = null;
-            SelectedValueName = null;
-
             UpdateDisplayNames();
-            if (LoadedFiles.Count(static f => f.IsChecked) >= 2) _ = Compare();
+            if (LoadedFiles.Count == 0) _following = false;
         }
         finally
         {
             _isUpdatingList = false;
         }
+
+        // The removed file's column goes at once; the comparison is made again (or cleared, with
+        // fewer than two ticked files) when the display follows the list, or one is running, and the
+        // new columns replace the others.
+        var column = Columns.OfType<FileColumnViewModel>().FirstOrDefault(c => ReferenceEquals(c.File, file.File));
+        if (column is not null) Columns.Remove(column);
+        if (_following || IsComparing) _ = Compare();
     }
 
     /// <summary>
@@ -162,7 +188,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private async Task Compare()
     {
         // A request that arrives while a comparison is running is replayed once it finishes,
-        // so the final display always reflects the latest checkbox/reference state.
+        // so the final display always reflects the latest state of the file list.
         if (IsComparing)
         {
             _comparePending = true;
@@ -176,12 +202,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        _following = true;
         IsComparing = true;
         ComparisonProgress = 0.05;
         try
         {
             var refFile = ReferenceFile is not null && checkedFiles.Contains(ReferenceFile) ? ReferenceFile : checkedFiles[0];
-            ReferenceFile = refFile;
+            SetReference(refFile);
 
             var orderedFiles = new List<LoadedFileViewModel>(checkedFiles.Count) { refFile };
             orderedFiles.AddRange(checkedFiles.Where(f => f != refFile));
@@ -199,23 +226,40 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             var years = regs.Select(static f => f.Modified.Year).Distinct().Count();
             var showYear = years > 1;
 
-            var existingSearches = Columns.OfType<SearchColumnViewModel>().ToList();
-            Columns.Clear();
+            // The file columns are replaced in place, before the search columns, which stay as they
+            // are (one opened or closed while the columns are built included).
+            for (var i = Columns.Count - 1; i >= 0; i--)
+            {
+                if (Columns[i] is FileColumnViewModel) Columns.RemoveAt(i);
+            }
             for (var i = 0; i < regs.Count; i++)
             {
                 var col = new FileColumnViewModel(this, diff, i, isReference: i == refIndex, showYearInDate: showYear);
-                Columns.Add(col);
+                Columns.Insert(FileColumnsEnd(), col);
                 ComparisonProgress = 0.25 + 0.70 * (i + 1) / regs.Count;
                 await LetUiRenderAsync();
             }
-            foreach (var s in existingSearches) Columns.Add(s);
 
-            StatusText = $"Compared files = {checkedFiles.Count}";
-            SelectedKeyPath = null;
-            SelectedValueName = null;
+            // The selected key and value, kept from before or picked in a column already built, are
+            // selected in every new column that shows them.
+            foreach (var col in Columns.OfType<FileColumnViewModel>())
+            {
+                col.ApplyExternalSelection();
+                col.ApplyExternalValueSelection();
+            }
+
+            // A replay to come shows the load problems again, beside its own count.
+            StatusText = WithLoadProblems($"Compared files = {checkedFiles.Count}");
+            if (!_comparePending) _loadProblems.Clear();
 
             ComparisonProgress = 1.0;
             await Task.Delay(150);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Comparison failed");
+            ClearFileColumns();
+            StatusText = $"The comparison failed: {ex.Message}";
         }
         finally
         {
@@ -229,6 +273,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Index after the last file column: where the search columns start.</summary>
+    private int FileColumnsEnd()
+    {
+        for (var i = 0; i < Columns.Count; i++)
+        {
+            if (Columns[i] is not FileColumnViewModel) return i;
+        }
+        return Columns.Count;
+    }
+
     /// <summary>
     /// Drop every file column (search columns are kept) and reset the shared selection state.
     /// Used when fewer than two files are checked so no stale comparison stays on screen.
@@ -240,7 +294,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         {
             if (Columns[i] is FileColumnViewModel) Columns.RemoveAt(i);
         }
-        StatusText = "Compared files = 0";
+        StatusText = WithLoadProblems("Compared files = 0");
+        _loadProblems.Clear();
         SelectedKeyPath = null;
         SelectedValueName = null;
     }
@@ -301,19 +356,55 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Columns.Add(new SearchColumnViewModel(this, term, allFiles, indices));
     }
 
-    /// <summary>Add a single .reg file. Skips duplicates silently and re-runs Compare if a previous diff exists.</summary>
-    public void AddRegFile(string path)
+    /// <summary>
+    /// Add a single .reg file (checked), as a batch of one (see <see cref="AddFiles"/>). True when it
+    /// was added.
+    /// </summary>
+    public bool AddRegFile(string path)
+    {
+        var before = LoadedFiles.Count;
+        AddFiles([path]);
+        return LoadedFiles.Count > before;
+    }
+
+    /// <summary>
+    /// Load files (each one ticked). A file already in the list is not added twice, and one without
+    /// any key is added with a word in the status bar, which lists every problem met. When the display
+    /// follows the file list, the comparison is then made again once, with the new files.
+    /// </summary>
+    private void AddFiles(IEnumerable<string> paths, IEnumerable<string>? unreadable = null)
+    {
+        _loadProblems.Clear();
+        if (unreadable is not null)
+        {
+            foreach (var path in unreadable) _loadProblems.Add($"Could not read: {path}");
+        }
+
+        var added = 0;
+        foreach (var path in paths)
+        {
+            if (Load(path)) added++;
+        }
+
+        if (_loadProblems.Count > 0) StatusText = WithLoadProblems(null);
+        if (added > 0 && _following) _ = Compare();
+    }
+
+    /// <summary>Parse one file and add it to the list; a problem goes to <see cref="_loadProblems"/>.</summary>
+    private bool Load(string path)
     {
         try
         {
             var fullPath = Path.GetFullPath(path);
             if (LoadedFiles.Any(f => string.Equals(f.File.Path, fullPath, StringComparison.OrdinalIgnoreCase)))
             {
-                StatusText = $"Ignored (already added): {fullPath}";
-                return;
+                _loadProblems.Add($"Ignored (already added): {fullPath}");
+                return false;
             }
 
             var parsed = _parser.Parse(fullPath);
+            if (parsed.Data.Count == 0) _loadProblems.Add($"No registry key in: {fullPath}");
+
             LoadedFiles.Add(new LoadedFileViewModel(parsed)
             {
                 CheckedToggled = OnLoadedFileCheckChanged,
@@ -321,18 +412,60 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             });
             UpdateDisplayNames();
             ResetReferenceIfNeeded();
+            return true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to load {Path}", path);
-            StatusText = $"Failed to load: {path}";
+            _loadProblems.Add($"Failed to load {path}: {ex.Message}");
+            return false;
         }
     }
 
-    /// <summary>Resolve a list of dropped paths and load each .reg file found.</summary>
+    /// <summary>
+    /// <paramref name="text"/> followed by the load problems still to tell (the first ones, when
+    /// there are many), or the problems alone when <paramref name="text"/> is null.
+    /// </summary>
+    private string WithLoadProblems(string? text)
+    {
+        if (_loadProblems.Count == 0) return text ?? "";
+        var shown = string.Join("   |   ", _loadProblems.Take(MaxProblemsShown));
+        if (_loadProblems.Count > MaxProblemsShown) shown += $"   |   … and {_loadProblems.Count - MaxProblemsShown} more";
+        return text is null ? shown : $"{text}   |   {shown}";
+    }
+
+    /// <summary>
+    /// Resolve a list of dropped paths and load each .reg file found (folders are searched at every
+    /// depth). Nothing found, and paths that could not be read, are told in the status bar.
+    /// </summary>
     public void HandleDroppedPaths(IEnumerable<string> paths)
     {
-        foreach (var p in _dragDrop.ResolveDroppedPaths(paths)) AddRegFile(p);
+        try
+        {
+            var unreadable = new List<string>();
+            var files = _dragDrop.ResolveDroppedPaths(paths, unreadable);
+            if (files.Count == 0 && unreadable.Count == 0)
+            {
+                StatusText = "No .reg file found in what was given";
+                return;
+            }
+            AddFiles(files, unreadable);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to resolve the dropped paths");
+            StatusText = $"The files could not be listed: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Load the files and folders given on the command line (resolved like a drop), then compare them
+    /// when there are at least two.
+    /// </summary>
+    public void OpenAtStart(IEnumerable<string> paths)
+    {
+        HandleDroppedPaths(paths);
+        if (LoadedFiles.Count(static f => f.IsChecked) >= 2) _ = Compare();
     }
 
     /// <summary>Remove a column. For file columns this also removes the file; for search columns it just drops the column.</summary>
@@ -352,13 +485,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    /// <summary>Called by a column when its tree selection changed by user action.</summary>
+    /// <summary>
+    /// Called by a column when its tree selection changed by user action: every file column selects
+    /// that key, and no value is selected any more (it belonged to the previous key).
+    /// </summary>
     public void OnColumnKeySelected(ColumnViewModelBase source, string? keyPath)
     {
         SelectedKeyPath = keyPath;
+        SelectedValueName = null;
         foreach (var col in Columns)
         {
-            if (col is FileColumnViewModel fc && col != source) fc.ApplyExternalSelection();
+            if (col == source) continue;
+            if (col is FileColumnViewModel fc) fc.ApplyExternalSelection();
+            else col.ApplyExternalValueSelection();
         }
     }
 
@@ -383,32 +522,38 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>A removed reference is replaced by the first file of the list.</summary>
     private void ResetReferenceIfNeeded()
     {
-        if (ReferenceFile is not null && !LoadedFiles.Contains(ReferenceFile)) ReferenceFile = null;
-        if (ReferenceFile is null && LoadedFiles.Count > 0) ReferenceFile = LoadedFiles[0];
+        if (ReferenceFile is not null && !LoadedFiles.Contains(ReferenceFile)) SetReference(null);
+        if (ReferenceFile is null && LoadedFiles.Count > 0) SetReference(LoadedFiles[0]);
+    }
+
+    /// <summary>Write <see cref="ReferenceFile"/> without taking it for a user's choice.</summary>
+    private void SetReference(LoadedFileViewModel? file)
+    {
+        _settingReference = true;
+        try { ReferenceFile = file; }
+        finally { _settingReference = false; }
     }
 
     partial void OnShowOnlyChangesChanged(bool value) => RebuildAllFileColumns();
     partial void OnHideEmptyAddedNodesChanged(bool value) => RebuildAllFileColumns();
 
     /// <summary>
-    /// Re-run the comparison when the user picks a new reference while one is displayed.
-    /// A reference must take part in the comparison, so an unchecked file gets checked first
-    /// (which re-compares through the check-changed path).
+    /// The user picked a reference. A reference must take part in the comparison, so an unchecked
+    /// file gets checked first (which compares again through the check-changed path). When the
+    /// display follows the file list, the comparison is made again with it, after the one running.
     /// </summary>
     partial void OnReferenceFileChanged(LoadedFileViewModel? value)
     {
-        if (_isUpdatingList || IsComparing || value is null) return;
+        if (_isUpdatingList || _settingReference || value is null) return;
         if (!value.IsChecked)
         {
             value.IsChecked = true;
             return;
         }
-        if (Columns.OfType<FileColumnViewModel>().Any() && LoadedFiles.Count(static f => f.IsChecked) >= 2)
-        {
-            _ = Compare();
-        }
+        if (_following || IsComparing) _ = Compare();
     }
 
     private void RebuildAllFileColumns()
@@ -417,16 +562,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Called by the LoadedFileViewModel when its IsChecked changes. When a comparison is
-    /// displayed (or running), re-compare; Compare itself clears the file columns when fewer
-    /// than two files remain checked.
+    /// Called by the LoadedFileViewModel when its IsChecked changes. When the display follows the
+    /// file list (or a comparison runs), compare again; Compare itself clears the file columns when
+    /// fewer than two files remain checked.
     /// </summary>
     public void OnLoadedFileCheckChanged()
     {
         if (_isUpdatingList) return;
-        if (Columns.OfType<FileColumnViewModel>().Any() || IsComparing)
-        {
-            _ = Compare();
-        }
+        if (_following || IsComparing) _ = Compare();
     }
 }

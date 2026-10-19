@@ -18,8 +18,6 @@ namespace RegCompare.ViewModels;
 public sealed partial class SearchColumnViewModel : ColumnViewModelBase
 {
 
-    public override ColumnKind Kind => ColumnKind.Search;
-
     /// <summary>The term entered by the user (case-insensitive substring matching).</summary>
     public string Term { get; }
 
@@ -71,10 +69,11 @@ public sealed partial class SearchColumnViewModel : ColumnViewModelBase
 
                 foreach (var (valueName, raw) in values)
                 {
-                    var valueMatched = valueName.Contains(Term, StringComparison.OrdinalIgnoreCase);
+                    // The name and the data as the grids show them ("(Default)", decoded hex).
+                    var valueMatched = ValueRowViewModel.DisplayNameOf(valueName).Contains(Term, StringComparison.OrdinalIgnoreCase);
                     if (!valueMatched)
                     {
-                        var disp = RegTypeFormatter.GetDisplayValue(raw);
+                        var disp = RegTypeFormatter.GetDisplayValue(raw, file.IsRegedit4);
                         valueMatched = disp.Contains(Term, StringComparison.OrdinalIgnoreCase);
                     }
                     if (valueMatched)
@@ -92,8 +91,8 @@ public sealed partial class SearchColumnViewModel : ColumnViewModelBase
 
             if (perKey.Count == 0) continue;
 
-            var fileRoot = new SearchResultNodeViewModel(file.FileName, isFileRoot: true) { FileIndex = idx };
-            foreach (var (keyPath, entry) in perKey.OrderBy(static kvp => kvp.Key, StringComparer.OrdinalIgnoreCase))
+            var fileRoot = new SearchResultNodeViewModel(file.FileName, isFileRoot: true) { FileIndex = idx, ToolTip = file.Path };
+            foreach (var (keyPath, entry) in perKey.OrderBy(static kvp => kvp.Key, KeyPathComparer.Instance))
             {
                 var keyNode = new SearchResultNodeViewModel(keyPath, isFileRoot: false)
                 {
@@ -116,7 +115,7 @@ public sealed partial class SearchColumnViewModel : ColumnViewModelBase
         if (firstChild is not null)
         {
             SuppressSelectionPropagation = true;
-            try { SelectedSearchNode = firstChild; firstChild.IsSelected = true; }
+            try { SelectedSearchNode = firstChild; }
             finally { SuppressSelectionPropagation = false; }
             ApplySearchSelection(firstChild);
         }
@@ -128,11 +127,44 @@ public sealed partial class SearchColumnViewModel : ColumnViewModelBase
         ApplySearchSelection(value);
     }
 
+    /// <summary>True when this column shows the values of the key selected in every column.</summary>
+    private bool ShowsSelectedKey =>
+        SelectedSearchNode is { IsFileRoot: false } node
+        && string.Equals(node.KeyPath, Main.SelectedKeyPath, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The value selected elsewhere belongs to the key selected elsewhere: this grid follows it only
+    /// while it shows that key, and selects nothing otherwise.
+    /// </summary>
+    public override void ApplyExternalValueSelection()
+    {
+        if (ShowsSelectedKey)
+        {
+            base.ApplyExternalValueSelection();
+            return;
+        }
+        SuppressSelectionPropagation = true;
+        try { SelectedValueRow = null; }
+        finally { SuppressSelectionPropagation = false; }
+    }
+
+    /// <summary>
+    /// A value picked here belongs to this column's key: when another key is selected elsewhere, the
+    /// columns go to this one first, then select the value.
+    /// </summary>
+    protected override void OnUserSelectedValue(ValueRowViewModel? value)
+    {
+        if (value is not null && !ShowsSelectedKey && SelectedSearchNode is { IsFileRoot: false } node)
+            Main.OnColumnKeySelected(this, node.KeyPath);
+        base.OnUserSelectedValue(value);
+    }
+
     private void ApplySearchSelection(SearchResultNodeViewModel? node)
     {
         if (node is null || node.IsFileRoot || string.IsNullOrEmpty(node.KeyPath))
         {
             ValueRows.Clear();
+            UpdateDataColumnWidth();
             UpdateStatusFromNode(node);
             return;
         }
@@ -153,14 +185,14 @@ public sealed partial class SearchColumnViewModel : ColumnViewModelBase
                 {
                     Name = valueName,
                     Type = RegTypeFormatter.GetTypeName(RegTypeFormatter.InferType(raw)),
-                    DisplayValue = RegTypeFormatter.GetDisplayValue(raw),
-                    RawValue = raw,
+                    DisplayValue = RegTypeFormatter.GetDisplayValue(raw, file.IsRegedit4),
                     Status = DiffStatus.Identical,
                     IsChange = false,
                 });
             }
         }
 
+        UpdateDataColumnWidth();
         UpdateStatusFromNode(node);
 
         if (!SuppressSelectionPropagation) Main.OnColumnKeySelected(this, node.KeyPath);

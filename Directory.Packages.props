@@ -7,20 +7,25 @@
 
   <!--
     Notes on dependency choices:
-    - Avalonia uses the nightly CI build aligned with 2ndLAB.SkiaSharp.Static. The static
-      Skia/HarfBuzz package is matched to this Avalonia nightly; a mismatched Avalonia
-      binary can make XAML AOT throw TypeLoad/MissingMethod at startup. Recipe:
-      github.com/peaceshi/Avalonia-NativeAOT-SingleFile.
+    - Avalonia is the stable 12.1.4 from nuget.org. Every Avalonia.* package must carry the
+      same version: a mismatched Avalonia binary can make XAML AOT throw
+      TypeLoad/MissingMethod at startup.
+    - 2ndLAB.SkiaSharp.Static (static Skia/HarfBuzz .lib, recipe:
+      github.com/peaceshi/Avalonia-NativeAOT-SingleFile) must match the native API of the
+      SkiaSharp/HarfBuzzSharp that Avalonia.Skia pulls in. Avalonia.Skia 12.1.4 depends on
+      SkiaSharp 3.119.4 and HarfBuzzSharp 8.3.1.3; 3.119.0-... is the static build of that
+      Skia milestone (m119, the newest one published). Re-check the nuspec of Avalonia.Skia
+      whenever Avalonia moves: a new Skia milestone needs a new static package.
     - Avalonia.Controls.DataGrid is intentionally NOT referenced - it ships AOT trim
       warnings (IL2104/IL3053). The values grid is implemented as a ListBox + Grid item
       template so the full UI is AOT-clean.
-    - SukiUI / Material.Icons stay out: not validated against the nightly Avalonia.
+    - SukiUI / Material.Icons stay out: not validated against Avalonia 12.1.
   -->
   <ItemGroup>
-    <PackageVersion Include="Avalonia" Version="12.1.999-cibuild0067332-alpha" />
-    <PackageVersion Include="Avalonia.Desktop" Version="12.1.999-cibuild0067332-alpha" />
-    <PackageVersion Include="Avalonia.Themes.Fluent" Version="12.1.999-cibuild0067332-alpha" />
-    <PackageVersion Include="Avalonia.Fonts.Inter" Version="12.1.999-cibuild0067332-alpha" />
+    <PackageVersion Include="Avalonia" Version="12.1.4" />
+    <PackageVersion Include="Avalonia.Desktop" Version="12.1.4" />
+    <PackageVersion Include="Avalonia.Themes.Fluent" Version="12.1.4" />
+    <PackageVersion Include="Avalonia.Fonts.Inter" Version="12.1.4" />
 
     <!-- Static Skia + HarfBuzz libs for true single-file NativeAOT publish. -->
     <PackageVersion Include="2ndLAB.SkiaSharp.Static" Version="3.119.0-10.0.26100.0-1.1c7d845" />
@@ -30,6 +35,8 @@
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.7" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.7" />
 
+    <!-- Tests only: the real views without a window on screen (Tests/MainWindowTests.cs). -->
+    <PackageVersion Include="Avalonia.Headless" Version="12.1.4" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.5.1" />
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.0.1" />

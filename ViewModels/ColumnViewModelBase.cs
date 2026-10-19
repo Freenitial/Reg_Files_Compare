@@ -1,10 +1,12 @@
 // Common state shared by file columns and search-result columns.
 
+using System;
 using System.Collections.ObjectModel;
-using Avalonia.Threading;
+using System.Linq;
+using Avalonia.Controls;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using RegCompare.Models;
+using RegCompare.Services;
 
 namespace RegCompare.ViewModels;
 
@@ -26,30 +28,11 @@ public abstract partial class ColumnViewModelBase(MainWindowViewModel main) : Vi
     /// </summary>
     protected bool SuppressSelectionPropagation { get; set; }
 
-    /// <summary>
-    /// True while a cross-column selection sync is being applied to this column. The View
-    /// reads this flag and marks <c>RequestBringIntoView</c> events as Handled while it's set,
-    /// so the outer horizontal ScrollViewer of the columns area does not auto-scroll to the
-    /// synced column (which would shift the user's view sideways every time they click a node).
-    /// </summary>
-    public bool IsApplyingExternalSelection { get; private set; }
-
-    /// <summary>Set <see cref="IsApplyingExternalSelection"/> = true (start of an external sync).</summary>
-    protected void BeginExternalSelection() => IsApplyingExternalSelection = true;
-
-    /// <summary>
-    /// Reset <see cref="IsApplyingExternalSelection"/> on the next dispatcher tick so that
-    /// the synchronous chain of <c>RequestBringIntoView</c> events emitted by setting
-    /// SelectedItem still see the flag as true while bubbling.
-    /// </summary>
-    protected void EndExternalSelectionDeferred() =>
-        Dispatcher.UIThread.Post(() => IsApplyingExternalSelection = false, DispatcherPriority.Background);
-
-    /// <summary>Column kind discriminator used by the view to pick a template.</summary>
-    public abstract ColumnKind Kind { get; }
-
     [ObservableProperty]
     private string _title = "";
+
+    /// <summary>Tooltip of the column header: the full path of a file column's file.</summary>
+    public string? HeaderToolTip { get; protected init; }
 
     [ObservableProperty]
     private string _infoText = "";
@@ -67,15 +50,33 @@ public abstract partial class ColumnViewModelBase(MainWindowViewModel main) : Vi
     [ObservableProperty]
     private ValueRowViewModel? _selectedValueRow;
 
-    /// <summary>The flat collection bound to the values DataGrid in the lower half of the column.</summary>
+    /// <summary>The rows of the values grid (a ListBox) in the lower half of the column.</summary>
     public ObservableCollection<ValueRowViewModel> ValueRows { get; } = [];
+
+    /// <summary>Room around a datum in its cell (the cell's padding, and a little slack).</summary>
+    private const double DataCellPadding = 14;
+
+    /// <summary>
+    /// Width of the values grid's Data column: its widest datum. The grid only creates the rows on
+    /// screen (a key may hold thousands of values), so it cannot size that column from them all.
+    /// </summary>
+    [ObservableProperty]
+    private GridLength _dataColumnWidth = new(0, GridUnitType.Pixel);
+
+    /// <summary>Size the Data column to the widest datum of <see cref="ValueRows"/>, once they are filled.</summary>
+    protected void UpdateDataColumnWidth()
+    {
+        var widest = TextWidth.Widest(ValueRows.Select(static row => row.DisplayValue));
+        DataColumnWidth = new GridLength(Math.Ceiling(widest) + DataCellPadding, GridUnitType.Pixel);
+    }
 
     /// <summary>Apply <see cref="MainWindowViewModel.SelectedValueName"/> to the value row selection.</summary>
     public virtual void ApplyExternalValueSelection()
     {
         var name = Main.SelectedValueName;
         ValueRowViewModel? match = null;
-        if (!string.IsNullOrEmpty(name))
+        // The default value's name is empty: only null means "no value selected".
+        if (name is not null)
         {
             foreach (var row in ValueRows)
             {
@@ -87,21 +88,19 @@ public abstract partial class ColumnViewModelBase(MainWindowViewModel main) : Vi
             }
         }
 
-        BeginExternalSelection();
         SuppressSelectionPropagation = true;
         try { SelectedValueRow = match; }
-        finally
-        {
-            SuppressSelectionPropagation = false;
-            EndExternalSelectionDeferred();
-        }
+        finally { SuppressSelectionPropagation = false; }
     }
 
     partial void OnSelectedValueRowChanged(ValueRowViewModel? value)
     {
         if (SuppressSelectionPropagation) return;
-        Main.OnColumnValueSelected(this, value?.Name);
+        OnUserSelectedValue(value);
     }
+
+    /// <summary>The user selected a value row (or none) in this column: every other column follows.</summary>
+    protected virtual void OnUserSelectedValue(ValueRowViewModel? value) => Main.OnColumnValueSelected(this, value?.Name);
 
     /// <summary>Remove this column (and, for file columns, its underlying file as well).</summary>
     [RelayCommand]

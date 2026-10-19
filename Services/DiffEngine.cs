@@ -34,8 +34,8 @@ public sealed class DiffEngine
     public Dictionary<string, Dictionary<string, List<int>>> AllValues { get; }
 
     /// <summary>
-    /// Every key path in <see cref="AllKeys"/>, sorted ordinal-ignore-case. Computed once here
-    /// (on the background thread that builds the engine) so column rebuilds don't re-sort.
+    /// Every key path in <see cref="AllKeys"/>, in tree order (<see cref="KeyPathComparer"/>). Computed
+    /// once here (on the background thread that builds the engine) so column rebuilds don't re-sort.
     /// </summary>
     public IReadOnlyList<string> SortedKeys { get; }
 
@@ -90,7 +90,7 @@ public sealed class DiffEngine
 
         var sorted = new string[AllKeys.Count];
         AllKeys.Keys.CopyTo(sorted, 0);
-        Array.Sort(sorted, StringComparer.OrdinalIgnoreCase);
+        Array.Sort(sorted, KeyPathComparer.Instance);
         SortedKeys = sorted;
 
         _subtreeChanged = new HashSet<string>[files.Count];
@@ -173,29 +173,8 @@ public sealed class DiffEngine
     }
 
     /// <summary>
-    /// True if the key (or any of its values) differs from the reference in *any* checked file.
-    /// Used to bold/highlight items in the reference column.
-    /// </summary>
-    public bool KeyChangedAnywhere(string key)
-    {
-        for (var i = 0; i < Files.Count; i++)
-        {
-            if (i == ReferenceIndex) continue;
-            if (!Files[i].Data.ContainsKey(key)) return true;
-            if (AllValues.TryGetValue(key, out var valMap))
-            {
-                foreach (var valueName in valMap.Keys)
-                {
-                    var status = GetValueStatus(key, valueName, i);
-                    if (status is DiffStatus.Missing or DiffStatus.Added or DiffStatus.Different) return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    /// <summary>
-    /// True if a specific value differs from the reference in any checked file.
+    /// True if a specific value differs from the reference in any checked file (added, missing or
+    /// different). Used to bold a value in the reference column.
     /// </summary>
     public bool ValueChangedAnywhere(string key, string valueName)
     {

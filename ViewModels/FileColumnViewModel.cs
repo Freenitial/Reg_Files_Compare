@@ -24,8 +24,6 @@ public sealed partial class FileColumnViewModel : ColumnViewModelBase
     private readonly int _totalKeys;
     private readonly int _totalValues;
 
-    public override ColumnKind Kind => ColumnKind.File;
-
     /// <summary>Index of the bound file inside <see cref="DiffEngine.Files"/>.</summary>
     public int FileIndex { get; }
 
@@ -46,24 +44,38 @@ public sealed partial class FileColumnViewModel : ColumnViewModelBase
         File = diff.Files[fileIndex];
         IsReference = isReference;
         Title = (isReference ? "(REF) " : "") + File.FileName;
+        HeaderToolTip = File.Path;
         var dateFormat = showYearInDate ? "dd/MM/yyyy HH:mm" : "dd/MM HH:mm";
         InfoText = $"{File.Modified.ToString(dateFormat, CultureInfo.InvariantCulture)}   -   {File.DisplaySize}";
 
         _totalKeys = File.Data.Count;
         foreach (var perKey in File.Data.Values) _totalValues += perKey.Count;
 
-        Rebuild();
-    }
-
-    /// <summary>
-    /// Rebuild the key tree, the value rows, and the status text. Called on construction and any time
-    /// the filter checkboxes or the underlying file set change.
-    /// </summary>
-    public void Rebuild()
-    {
         BuildTree();
         AutoExpandChanges();
         UpdateStatusFromSelection();
+    }
+
+    /// <summary>
+    /// Rebuild the key tree and the value rows after a filter change, then select again the key
+    /// and the value selected in every column, when this column still lists them.
+    /// </summary>
+    public void Rebuild()
+    {
+        // Emptying the tree and the grid clears their selection: that must not reach the other
+        // columns, whose selection is kept.
+        SuppressSelectionPropagation = true;
+        try
+        {
+            SelectedNode = null;
+            ValueRows.Clear();
+            BuildTree();
+            AutoExpandChanges();
+        }
+        finally { SuppressSelectionPropagation = false; }
+
+        ApplyExternalSelection();
+        ApplyExternalValueSelection();
     }
 
     /// <summary>
@@ -74,10 +86,12 @@ public sealed partial class FileColumnViewModel : ColumnViewModelBase
     {
         foreach (var root in Roots) NotifyNodeAndDescendants(root);
 
-        // Re-create value rows for the currently selected key so the DataGridRow style binding
-        // re-resolves the diff brushes against the new theme.
-        var sel = SelectedNode;
-        UpdateValueRows(sel?.Path);
+        // Re-create value rows for the currently selected key so the row bindings
+        // re-resolve the diff brushes against the new theme; the selected value stays selected.
+        SuppressSelectionPropagation = true;
+        try { UpdateValueRows(SelectedNode?.Path); }
+        finally { SuppressSelectionPropagation = false; }
+        ApplyExternalValueSelection();
     }
 
     private static void NotifyNodeAndDescendants(KeyNodeViewModel node)
@@ -101,21 +115,14 @@ public sealed partial class FileColumnViewModel : ColumnViewModelBase
 
         ExpandAncestorsOf(node);
 
-        BeginExternalSelection();
         SuppressSelectionPropagation = true;
         try
         {
-            if (SelectedNode is { } prev && !ReferenceEquals(prev, node)) prev.IsSelected = false;
             SelectedNode = node;
-            node.IsSelected = true;
+            UpdateValueRows(path);
         }
-        finally
-        {
-            SuppressSelectionPropagation = false;
-            EndExternalSelectionDeferred();
-        }
+        finally { SuppressSelectionPropagation = false; }
 
-        UpdateValueRows(path);
         UpdateStatusFromSelection();
     }
 
@@ -132,9 +139,9 @@ public sealed partial class FileColumnViewModel : ColumnViewModelBase
         SuppressSelectionPropagation = true;
         try
         {
-            if (SelectedNode is { } prev) prev.IsSelected = false;
             SelectedNode = null;
             ValueRows.Clear();
+            UpdateDataColumnWidth();
         }
         finally { SuppressSelectionPropagation = false; }
         UpdateStatusFromSelection();
@@ -205,13 +212,22 @@ public sealed partial class FileColumnViewModel : ColumnViewModelBase
         if (IsReference && _diff.ChangedAnywhereForKey(fullKey)) node.IsChange = true;
     }
 
-    private static void RemoveEmptyAddedNodes(ObservableCollection<KeyNodeViewModel> roots)
+    /// <summary>
+    /// "Hide empty added nodes": drop the added keys that have no subkey left, then the path levels
+    /// (not keys of any compared file) left without children. They leave the selection index too, so
+    /// a key chosen elsewhere is not "selected" here while the tree hides it.
+    /// </summary>
+    private void RemoveEmptyAddedNodes(ObservableCollection<KeyNodeViewModel> nodes)
     {
-        for (var i = roots.Count - 1; i >= 0; i--)
+        for (var i = nodes.Count - 1; i >= 0; i--)
         {
-            var n = roots[i];
+            var n = nodes[i];
             RemoveEmptyAddedNodes(n.Children);
-            if (n.Status == DiffStatus.Added && n.Children.Count == 0) roots.RemoveAt(i);
+            if (n.Children.Count == 0 && n.Status is DiffStatus.Added or DiffStatus.Hidden)
+            {
+                _nodeIndex.Remove(n.Path);
+                nodes.RemoveAt(i);
+            }
         }
     }
 
@@ -243,7 +259,14 @@ public sealed partial class FileColumnViewModel : ColumnViewModelBase
         }
     }
 
+    /// <summary>Fill the values grid with the key's values, then size its Data column.</summary>
     private void UpdateValueRows(string? keyPath)
+    {
+        FillValueRows(keyPath);
+        UpdateDataColumnWidth();
+    }
+
+    private void FillValueRows(string? keyPath)
     {
         ValueRows.Clear();
         if (string.IsNullOrEmpty(keyPath)) return;
@@ -272,7 +295,7 @@ public sealed partial class FileColumnViewModel : ColumnViewModelBase
             }
             else if (vStatus == DiffStatus.Hidden) continue;
 
-            var displayValue = hasValueHere ? RegTypeFormatter.GetDisplayValue(hereVals![valueName]) : "";
+            var displayValue = hasValueHere ? RegTypeFormatter.GetDisplayValue(hereVals![valueName], File.IsRegedit4) : "";
             var typeName = hasValueHere ? RegTypeFormatter.GetTypeName(RegTypeFormatter.InferType(hereVals![valueName])) : "";
 
             var isChange = !IsReference && vStatus is DiffStatus.Missing or DiffStatus.Added or DiffStatus.Different;
@@ -283,7 +306,6 @@ public sealed partial class FileColumnViewModel : ColumnViewModelBase
                 Name = valueName,
                 Type = typeName,
                 DisplayValue = displayValue,
-                RawValue = hasValueHere ? hereVals![valueName] : "",
                 Status = vStatus,
                 IsChange = isChange,
             });
